@@ -1,0 +1,11 @@
+@EmployeeHRMS.Api_HostAddress = http://localhost:5167
+
+GET {{EmployeeHRMS.Api_HostAddress}}/api/Employees
+Accept: application/json
+
+###
+
+GET {{EmployeeHRMS.Api_HostAddress}}/api/Employees/1
+Accept: application/json
+
+###

@@ -1,0 +1,23 @@
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Port=5432;Database=EmployeeHRMS_Db;Username=postgres;Password=REPLACE_WITH_YOUR_POSTGRES_PASSWORD"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "JwtSettings": {
+    "SecretKey": "REPLACE_WITH_YOUR_OWN_SECRET_KEY_MIN_32_CHARS"
+  },
+  "EmailSettings": {
+    "SmtpServer": "smtp.gmail.com",
+    "SmtpPort": 587,
+    "SenderName": "HRMS System",
+    "SenderEmail": "REPLACE_WITH_YOUR_EMAIL@gmail.com",
+    "SmtpUsername": "REPLACE_WITH_YOUR_SMTP_USERNAME",
+    "SmtpPassword": "REPLACE_WITH_YOUR_SMTP_PASSWORD",
+    "EnableSsl": true
+  }
+}

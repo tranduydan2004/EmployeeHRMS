@@ -1,0 +1,46 @@
+# ==========================================
+# Backend (.NET / EF Core)
+# ==========================================
+bin/
+obj/
+*.user
+*.suo
+.vs/
+server/appsettings.Development.json
+
+# Uploads directory (retain folder structure via .gitkeep)
+server/wwwroot/uploads/*
+!server/wwwroot/uploads/.gitkeep
+
+# ==========================================
+# Frontend (Vite / React)
+# ==========================================
+client/node_modules/
+client/dist/
+client/.env
+client/.env.local
+client/.env.*.local
+
+# ==========================================
+# Tests & Build Artifacts
+# ==========================================
+tests/**/bin/
+tests/**/obj/
+
+# ==========================================
+# Environment, IDE & OS
+# ==========================================
+.vscode/
+.idea/
+*.log
+*.tmp
+*.cache
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# Internal Task Tracking
+# ==========================================
+task.md
+AGENTS.md
+API_CONTRACT.md
