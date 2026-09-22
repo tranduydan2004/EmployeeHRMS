@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useNotificationStore } from './useNotificationStore';
 import { useAuthStore } from '../auth/useAuthStore';
+import { useSidebar } from '../../contexts/SidebarContext';
 import { formatNotificationMessage } from './utils/notificationTemplates';
 import './NotificationDropdown.css';
 
@@ -43,6 +44,7 @@ export default function NotificationDropdown() {
   const navigate = useNavigate();
 
   const role = useAuthStore((state) => state.role);
+  const { isMobileOpen, closeMobileSidebar } = useSidebar();
   const {
     notifications,
     unreadCount,
@@ -51,6 +53,13 @@ export default function NotificationDropdown() {
     markAsRead,
     markAllAsRead,
   } = useNotificationStore();
+
+  // Mutual exclusion: Close notifications dropdown when mobile sidebar opens
+  useEffect(() => {
+    if (isMobileOpen) {
+      setIsOpen(false);
+    }
+  }, [isMobileOpen]);
 
   // Close when clicking outside
   useEffect(() => {
@@ -70,6 +79,10 @@ export default function NotificationDropdown() {
 
   const handleToggle = () => {
     if (!isOpen) {
+      // Mutual exclusion: Close mobile sidebar before opening notifications dropdown
+      if (isMobileOpen) {
+        closeMobileSidebar();
+      }
       fetchNotifications();
     }
     setIsOpen((prev) => !prev);

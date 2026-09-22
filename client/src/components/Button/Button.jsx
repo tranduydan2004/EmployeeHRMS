@@ -15,6 +15,7 @@ export default function Button({
     primary: 'btn-primary',
     secondary: 'btn-secondary',
     danger: 'btn-danger',
+    warning: 'btn-warning',
     outline: 'btn-outline-primary',
   }[variant] || 'btn-primary';
 

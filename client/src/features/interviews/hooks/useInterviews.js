@@ -85,14 +85,30 @@ export function useInterviewMutations() {
     },
   });
 
+  const completeInterviewMutation = useMutation({
+    mutationFn: async ({ id, summary }) => {
+      const res = await axiosClient.patch(`/Interviews/${id}/complete`, { summary });
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      if (variables?.id) {
+        queryClient.invalidateQueries({ queryKey: ['interviews', variables.id] });
+      }
+      toast.success('Đã kết thúc buổi phỏng vấn thành công!');
+    },
+  });
+
   return {
     createInterview: createInterviewMutation.mutateAsync,
     addQuestion: addQuestionMutation.mutateAsync,
     updateQuestionAnswer: updateQuestionAnswerMutation.mutateAsync,
     deleteInterview: deleteInterviewMutation.mutateAsync,
+    completeInterview: completeInterviewMutation.mutateAsync,
     isCreating: createInterviewMutation.isPending,
     isAddingQuestion: addQuestionMutation.isPending,
     isUpdatingAnswer: updateQuestionAnswerMutation.isPending,
     isDeleting: deleteInterviewMutation.isPending,
+    isCompleting: completeInterviewMutation.isPending,
   };
 }

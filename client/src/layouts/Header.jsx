@@ -3,6 +3,7 @@ import { useAuthStore } from '../features/auth';
 import { Menu, LogOut, UserCheck } from 'lucide-react';
 import { Badge } from '../components';
 import { NotificationDropdown } from '../features/notifications';
+import ThemeToggle from './ThemeToggle';
 
 export default function Header() {
   const { toggleSidebar, toggleMobileSidebar } = useSidebar();
@@ -49,12 +50,14 @@ export default function Header() {
         >
           <Menu size={20} />
         </button>
-        <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--slate-800)' }}>
-          Hệ Thống Quản Trị Nhân Sự (HRMS)
-        </span>
+        <div className="header-title-container">
+          <span className="header-title-full">Hệ Thống Quản Trị Nhân Sự (HRMS)</span>
+          <span className="header-title-short">HRMS</span>
+        </div>
       </div>
 
       <div className="header-right">
+        <ThemeToggle />
         {userEmail && <NotificationDropdown />}
         {userEmail ? (
           <div className="user-profile-badge">
