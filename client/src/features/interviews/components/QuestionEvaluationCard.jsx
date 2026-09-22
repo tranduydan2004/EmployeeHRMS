@@ -2,18 +2,36 @@ import { useState } from 'react';
 import { useInterviewMutations } from '../hooks/useInterviews';
 import { useAuthStore } from '@/features/auth';
 import { Button, Input, Badge } from '@/components';
-import { Sparkles, Plus, Edit3, MessageSquare } from 'lucide-react';
+import { Sparkles, Plus, Edit3, MessageSquare, CheckCircle, Lock } from 'lucide-react';
+import CompleteInterviewModal from './CompleteInterviewModal';
 
 export default function QuestionEvaluationCard({ interview }) {
-  const { addQuestion, isAddingQuestion, updateQuestionAnswer, isUpdatingAnswer } = useInterviewMutations();
+  const {
+    addQuestion,
+    isAddingQuestion,
+    updateQuestionAnswer,
+    isUpdatingAnswer,
+    completeInterview,
+    isCompleting,
+  } = useInterviewMutations();
+
   const role = useAuthStore((state) => state.role);
   const userId = useAuthStore((state) => state.userId);
 
+  const isCompleted = interview.status === 'Completed';
+  const isCancelled = interview.status === 'Cancelled';
+
   // Ownership check: Admin, HR, or the assigned Interviewer (by userId)
-  const canEdit = role === 'Admin' || role === 'HR' || (role === 'Interviewer' && interview.interviewerId === userId);
+  const canEdit =
+    (role === 'Admin' || role === 'HR' || (role === 'Interviewer' && interview.interviewerId === userId)) &&
+    !isCompleted &&
+    !isCancelled;
+
+  const canComplete = canEdit;
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [questionText, setQuestionText] = useState('');
+  const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
 
   // Editing state for CandidateAnswer
   const [editingQuestionId, setEditingQuestionId] = useState(null);
@@ -56,27 +74,96 @@ export default function QuestionEvaluationCard({ interview }) {
     setAnswerText('');
   };
 
+  const handleConfirmComplete = async (summary) => {
+    await completeInterview({
+      id: interview.id,
+      summary,
+    });
+  };
+
   return (
     <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--slate-800)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '0.75rem',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
+        }}
+      >
+        <h4
+          style={{
+            fontSize: '0.95rem',
+            fontWeight: 600,
+            color: 'var(--text-main)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            margin: 0,
+          }}
+        >
           <MessageSquare size={16} color="var(--primary-600)" />
           Câu Hỏi & Đánh Giá Phỏng Vấn ({interview.questions?.length || 0})
         </h4>
-        {canEdit && (
-          <Button
-            variant="outline"
-            size="sm"
-            icon={Plus}
-            onClick={() => setShowAddForm((prev) => !prev)}
-          >
-            {showAddForm ? 'Đóng form' : 'Thêm câu hỏi'}
-          </Button>
-        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {canEdit && (
+            <Button
+              variant="outline"
+              size="sm"
+              icon={Plus}
+              onClick={() => setShowAddForm((prev) => !prev)}
+            >
+              {showAddForm ? 'Đóng form' : 'Thêm câu hỏi'}
+            </Button>
+          )}
+
+          {canComplete && (
+            <Button
+              variant="warning"
+              size="sm"
+              icon={CheckCircle}
+              onClick={() => setIsCompleteModalOpen(true)}
+            >
+              Kết thúc phỏng vấn
+            </Button>
+          )}
+
+          {isCompleted && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                padding: '0.3rem 0.65rem',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                backgroundColor: 'var(--success-bg)',
+                color: 'var(--success-text)',
+                border: '1px solid var(--success-border)',
+              }}
+            >
+              <Lock size={12} />
+              Đã hoàn tất (Chỉ đọc)
+            </div>
+          )}
+        </div>
       </div>
 
       {showAddForm && canEdit && (
-        <form onSubmit={handleAddQuestion} style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: 'var(--slate-50)', borderRadius: 'var(--radius-md)' }}>
+        <form
+          onSubmit={handleAddQuestion}
+          style={{
+            marginBottom: '1rem',
+            padding: '1rem',
+            backgroundColor: 'var(--slate-50)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-color)',
+          }}
+        >
           <Input
             label="Nội dung câu hỏi phỏng vấn"
             placeholder="Ví dụ: Bạn có kinh nghiệm giải quyết N+1 query problem trong EF Core như thế nào?"
@@ -115,7 +202,7 @@ export default function QuestionEvaluationCard({ interview }) {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--slate-900)' }}>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
                       <strong>Câu {idx + 1}:</strong> {q.question}
                     </div>
                   </div>
@@ -128,8 +215,8 @@ export default function QuestionEvaluationCard({ interview }) {
                     )}
                     {canEdit && !isEditingThis && (
                       <Button
-                        variant="ghost"
-                        size="xs"
+                        variant="secondary"
+                        size="sm"
                         icon={Edit3}
                         onClick={() => handleStartEditAnswer(q)}
                         title={q.candidateAnswer ? 'Sửa câu trả lời' : 'Nhập câu trả lời'}
@@ -141,8 +228,24 @@ export default function QuestionEvaluationCard({ interview }) {
                 </div>
 
                 {isEditingThis ? (
-                  <div style={{ marginTop: '0.25rem', padding: '0.5rem', backgroundColor: 'white', borderRadius: 'var(--radius-sm)', border: '1px solid var(--primary-300)' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--slate-700)', display: 'block', marginBottom: '0.25rem' }}>
+                  <div
+                    style={{
+                      marginTop: '0.25rem',
+                      padding: '0.75rem',
+                      backgroundColor: 'var(--bg-card)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--primary-400)',
+                    }}
+                  >
+                    <label
+                      style={{
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: 'var(--text-main)',
+                        display: 'block',
+                        marginBottom: '0.35rem',
+                      }}
+                    >
                       Câu trả lời của ứng viên:
                     </label>
                     <textarea
@@ -155,6 +258,8 @@ export default function QuestionEvaluationCard({ interview }) {
                         padding: '0.5rem 0.75rem',
                         borderRadius: 'var(--radius-sm)',
                         border: '1px solid var(--border-color)',
+                        backgroundColor: 'var(--bg-card)',
+                        color: 'var(--text-main)',
                         fontSize: '0.85rem',
                         fontFamily: 'inherit',
                         resize: 'vertical',
@@ -162,12 +267,12 @@ export default function QuestionEvaluationCard({ interview }) {
                       }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-                      <Button variant="secondary" size="xs" onClick={handleCancelEditAnswer}>
+                      <Button variant="secondary" size="sm" onClick={handleCancelEditAnswer}>
                         Hủy
                       </Button>
                       <Button
                         variant="primary"
-                        size="xs"
+                        size="sm"
                         isLoading={isUpdatingAnswer}
                         onClick={() => handleSaveAnswer(q.id)}
                       >
@@ -181,15 +286,15 @@ export default function QuestionEvaluationCard({ interview }) {
                       <div
                         style={{
                           fontSize: '0.85rem',
-                          color: 'var(--slate-700)',
+                          color: 'var(--text-main)',
                           marginTop: '0.2rem',
-                          backgroundColor: 'white',
+                          backgroundColor: 'var(--bg-card)',
                           padding: '0.5rem 0.75rem',
                           borderRadius: 'var(--radius-sm)',
                           border: '1px solid var(--border-color)',
                         }}
                       >
-                        <span style={{ fontWeight: 600, color: 'var(--primary-700)' }}>Trả lời: </span>
+                        <span style={{ fontWeight: 600, color: 'var(--primary-600)' }}>Trả lời: </span>
                         {q.candidateAnswer}
                       </div>
                     ) : (
@@ -221,6 +326,16 @@ export default function QuestionEvaluationCard({ interview }) {
         </div>
       ) : (
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Chưa có câu hỏi phỏng vấn nào được thiết lập.</p>
+      )}
+
+      {canComplete && (
+        <CompleteInterviewModal
+          isOpen={isCompleteModalOpen}
+          onClose={() => setIsCompleteModalOpen(false)}
+          interview={interview}
+          onConfirm={handleConfirmComplete}
+          isLoading={isCompleting}
+        />
       )}
     </div>
   );
