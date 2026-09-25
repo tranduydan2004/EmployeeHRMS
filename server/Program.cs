@@ -250,6 +250,19 @@ namespace EmployeeHRMS.Api
             builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler,
                 EmployeeHRMS.Api.Authorization.EmployeeAuthorizationHandler>();
 
+            // OpenAI — LLM services for Smart JD & Question Bank Generation
+            builder.Services.Configure<EmployeeHRMS.Api.Configuration.OpenAiSettings>(
+                builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.OpenAiSettings.SectionName));
+            builder.Services.AddSingleton(sp =>
+            {
+                var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmployeeHRMS.Api.Configuration.OpenAiSettings>>().Value;
+                if (string.IsNullOrWhiteSpace(settings.ApiKey))
+                    throw new InvalidOperationException("OpenAiSettings:ApiKey is not configured. Set it in appsettings or environment variables.");
+                return new OpenAI.Chat.ChatClient(settings.Model, settings.ApiKey);
+            });
+            builder.Services.AddScoped<EmployeeHRMS.Api.Services.IJdGenerationService, EmployeeHRMS.Api.Services.OpenAiJdGenerationService>();
+            builder.Services.AddScoped<EmployeeHRMS.Api.Services.IQuestionBankService, EmployeeHRMS.Api.Services.OpenAiQuestionBankService>();
+
             // Business services — Interface → Implementation (DI pattern)
             builder.Services.AddScoped<IDepartmentService, DepartmentService>();
             builder.Services.AddScoped<IEmployeeService, EmployeeService>();
@@ -257,6 +270,7 @@ namespace EmployeeHRMS.Api
             builder.Services.AddScoped<ICandidateService, CandidateService>();
             builder.Services.AddScoped<IApplicationService, ApplicationService>();
             builder.Services.AddScoped<IInterviewService, InterviewService>();
+
 
             // SignalR & Real-time Notification Service
             builder.Services.AddSignalR(options =>

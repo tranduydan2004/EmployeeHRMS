@@ -22,6 +22,7 @@ namespace EmployeeHRMS.Api.Data
         public DbSet<ApplicationUser> Users { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<Notification> Notifications { get; set; }
+        public DbSet<QuestionBankItem> QuestionBankItems { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -151,6 +152,39 @@ namespace EmployeeHRMS.Api.Data
                 entity.HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt })
                     .IsDescending(false, false, true)
                     .HasDatabaseName("IX_Notifications_UserId_IsRead_CreatedAt");
+            });
+
+            modelBuilder.Entity<JobPosting>(entity =>
+            {
+                entity.OwnsOne(j => j.SalaryRange, sr =>
+                {
+                    sr.Property(s => s.SalaryMin).HasPrecision(18, 2);
+                    sr.Property(s => s.SalaryMax).HasPrecision(18, 2);
+                });
+
+                entity.OwnsOne(j => j.JdContent, b =>
+                {
+                    b.ToJson();
+                });
+
+                entity.Property(j => j.CoreSkills)
+                    .HasColumnType("text[]");
+
+                entity.Property(j => j.Certifications)
+                    .HasColumnType("text[]");
+            });
+
+            modelBuilder.Entity<QuestionBankItem>(entity =>
+            {
+                entity.HasOne(q => q.JobPosting)
+                    .WithMany(j => j.QuestionBankItems)
+                    .HasForeignKey(q => q.JobPostingId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.OwnsOne(q => q.ScoringRubric, b =>
+                {
+                    b.ToJson();
+                });
             });
 
             // ============================================================
