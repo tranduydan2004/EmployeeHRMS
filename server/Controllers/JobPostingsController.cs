@@ -87,5 +87,50 @@ namespace EmployeeHRMS.Api.Controllers
             await _jobPostingService.DeleteAsync(id);
             return NoContent();
         }
+
+        // ================================================================
+        // Phase 1: Smart JD & Question Bank Generation Endpoints
+        // ================================================================
+
+        // POST: api/jobpostings/draft-jd — Admin, HR only
+        [HttpPost("draft-jd")]
+        public async Task<IActionResult> DraftJd([FromBody] DraftJdRequestDto dto)
+        {
+            var createdBy = User.Identity?.Name ?? "HR";
+            var result = await _jobPostingService.DraftJdAsync(dto, createdBy);
+            return CreatedAtAction(nameof(GetDetailById), new { id = result.Id }, result);
+        }
+
+        // PUT: api/jobpostings/{id}/jd-content — Admin, HR only
+        [HttpPut("{id}/jd-content")]
+        public async Task<IActionResult> UpdateJdContent(int id, [FromBody] UpdateJdContentDto dto)
+        {
+            var result = await _jobPostingService.UpdateJdContentAsync(id, dto);
+            return Ok(result);
+        }
+
+        // POST: api/jobpostings/{id}/approve — Admin, HR only
+        [HttpPost("{id}/approve")]
+        public async Task<IActionResult> ApproveJd(int id)
+        {
+            var result = await _jobPostingService.ApproveJdAsync(id);
+            return Ok(result);
+        }
+
+        // GET: api/jobpostings/{id}/detail — Admin, HR only
+        [HttpGet("{id}/detail")]
+        public async Task<IActionResult> GetDetailById(int id)
+        {
+            var result = await _jobPostingService.GetDetailByIdAsync(id);
+            return Ok(result);
+        }
+
+        // GET: api/jobpostings/{id}/questions — Admin, HR only
+        [HttpGet("{id}/questions")]
+        public async Task<IActionResult> GetQuestions(int id)
+        {
+            var result = await _jobPostingService.GetQuestionsAsync(id);
+            return Ok(result);
+        }
     }
 }

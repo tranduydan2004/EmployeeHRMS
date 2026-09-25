@@ -4,6 +4,8 @@ using EmployeeHRMS.Api.DTOs.Common;
 using EmployeeHRMS.Api.Exceptions;
 using EmployeeHRMS.Api.Helpers;
 using EmployeeHRMS.Api.Models;
+using EmployeeHRMS.Api.Models.ValueObjects;
+using EmployeeHRMS.Api.Services.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace EmployeeHRMS.Api.Services
@@ -17,6 +19,8 @@ namespace EmployeeHRMS.Api.Services
     {
         private readonly AppDbContext _context;
         private readonly EventLogger _eventLogger;
+        private readonly IJdGenerationService _jdGenerationService;
+        private readonly IQuestionBankService _questionBankService;
 
         private static readonly Dictionary<string, Func<IQueryable<JobPosting>, bool, IOrderedQueryable<JobPosting>>> SortMappings =
             new(StringComparer.OrdinalIgnoreCase)
@@ -26,10 +30,16 @@ namespace EmployeeHRMS.Api.Services
                 ["status"] = (q, desc) => desc ? q.OrderByDescending(j => j.Status) : q.OrderBy(j => j.Status),
             };
 
-        public JobPostingService(AppDbContext context, EventLogger eventLogger)
+        public JobPostingService(
+            AppDbContext context,
+            EventLogger eventLogger,
+            IJdGenerationService jdGenerationService,
+            IQuestionBankService questionBankService)
         {
             _context = context;
             _eventLogger = eventLogger;
+            _jdGenerationService = jdGenerationService;
+            _questionBankService = questionBankService;
         }
 
         // Private helper: map JobPosting entity → JobPostingResponseDto (dùng sau khi đã Include)
@@ -209,5 +219,253 @@ namespace EmployeeHRMS.Api.Services
             _eventLogger.LogEvent("JobPosting", $"deleted (Id: {id})", _eventLogger.OnEntityDeleted);
             return true;
         }
+
+        // ============================================================
+        // Phase 1: Smart JD & Question Bank Generation
+        // ============================================================
+
+        public async Task<JobPostingDetailResponseDto> DraftJdAsync(DraftJdRequestDto dto, string? createdBy = null)
+        {
+            var departmentExists = await _context.Departments.AnyAsync(d => d.Id == dto.DepartmentId);
+            if (!departmentExists)
+                throw new BusinessRuleException($"Department with ID {dto.DepartmentId} does not exist.");
+
+            // Lấy tên department cho prompt LLM
+            var departmentName = await _context.Departments
+                .Where(d => d.Id == dto.DepartmentId)
+                .Select(d => d.Name)
+                .FirstAsync();
+
+            // Tạo entity JobPosting với tham số HR nhập
+            var jobPosting = new JobPosting
+            {
+                Title = dto.Title,
+                DepartmentId = dto.DepartmentId,
+                Level = dto.Level,
+                WorkMode = dto.WorkMode,
+                CoreSkills = dto.CoreSkills,
+                YearsOfExperience = dto.YearsOfExperience,
+                SalaryRange = (dto.SalaryMin.HasValue || dto.SalaryMax.HasValue)
+                    ? new SalaryRange
+                    {
+                        SalaryMin = dto.SalaryMin,
+                        SalaryMax = dto.SalaryMax,
+                        Currency = dto.Currency
+                    }
+                    : null,
+                AdditionalNotes = dto.AdditionalNotes,
+                Certifications = dto.Certifications,
+                Status = JobPostingStatus.Draft,
+                CreatedBy = createdBy,
+                CreatedDate = DateTime.UtcNow
+            };
+
+            // Gọi LLM sinh bản thảo JD
+            var promptData = new JdGenerationPromptData
+            {
+                JobTitle = dto.Title,
+                DepartmentName = departmentName,
+                Level = dto.Level,
+                WorkMode = dto.WorkMode,
+                CoreSkills = dto.CoreSkills,
+                YearsOfExperience = dto.YearsOfExperience,
+                SalaryMin = dto.SalaryMin,
+                SalaryMax = dto.SalaryMax,
+                Currency = dto.Currency,
+                AdditionalNotes = dto.AdditionalNotes,
+                Certifications = dto.Certifications
+            };
+
+
+            var jdContent = await _jdGenerationService.GenerateJdAsync(promptData);
+            jobPosting.JdContent = jdContent;
+
+            await _context.JobPostings.AddAsync(jobPosting);
+            await _context.SaveChangesAsync();
+
+            // Load Department cho projection
+            await _context.Entry(jobPosting).Reference(j => j.Department).LoadAsync();
+
+            _eventLogger.LogEvent("JobPosting", $"JD draft created (Title: {dto.Title})", _eventLogger.OnEntityCreated);
+
+            return MapToDetailResponseDto(jobPosting);
+        }
+
+        public async Task<JobPostingDetailResponseDto> UpdateJdContentAsync(int id, UpdateJdContentDto dto)
+        {
+            var job = await _context.JobPostings
+                .Include(j => j.Department)
+                .Include(j => j.Applications)
+                .Include(j => j.QuestionBankItems)
+                .FirstOrDefaultAsync(j => j.Id == id)
+                ?? throw new NotFoundException("JobPosting", id);
+
+            if (job.Status != JobPostingStatus.Draft)
+                throw new BusinessRuleException(
+                    $"JD content can only be edited when status is Draft. Current status: {job.Status}.");
+
+            // Cập nhật JdContent từ HR chỉnh sửa
+            job.JdContent = new JdContent
+            {
+                Intro = dto.Intro,
+                Responsibilities = dto.Responsibilities,
+                MustHave = dto.MustHave,
+                NiceToHave = dto.NiceToHave,
+                Benefits = dto.Benefits
+            };
+
+            await _context.SaveChangesAsync();
+
+            _eventLogger.LogEvent("JobPosting", $"JD content updated (Id: {id})", _eventLogger.OnEntityUpdated);
+
+            return MapToDetailResponseDto(job);
+        }
+
+        public async Task<JobPostingDetailResponseDto> ApproveJdAsync(int id)
+        {
+            var job = await _context.JobPostings
+                .Include(j => j.Department)
+                .Include(j => j.Applications)
+                .Include(j => j.QuestionBankItems)
+                .FirstOrDefaultAsync(j => j.Id == id)
+                ?? throw new NotFoundException("JobPosting", id);
+
+            if (job.Status != JobPostingStatus.Draft)
+                throw new BusinessRuleException(
+                    $"Only Draft job postings can be approved. Current status: {job.Status}.");
+
+            if (job.JdContent == null)
+                throw new BusinessRuleException(
+                    "Cannot approve a job posting without JD content. Please generate or set JD content first.");
+
+            // Chuyển trạng thái sang Approved
+            job.Status = JobPostingStatus.Approved;
+            job.ApprovedAt = DateTime.UtcNow;
+
+            // Sinh Question Bank tự động khi Approve
+            var promptData = new QuestionBankPromptData
+            {
+                JobTitle = job.Title,
+                Level = job.Level,
+                JdContent = job.JdContent
+            };
+
+            var generatedQuestions = await _questionBankService.GenerateQuestionsAsync(promptData);
+
+            // Map kết quả LLM → QuestionBankItem entities và lưu DB
+            var orderIndex = 0;
+            foreach (var result in generatedQuestions)
+            {
+                var item = new QuestionBankItem
+                {
+                    JobPostingId = job.Id,
+                    Question = result.Question,
+                    Category = result.Category,
+                    Difficulty = result.Difficulty,
+                    ScoringRubric = result.ScoringRubric,
+                    OrderIndex = orderIndex++,
+                    CreatedDate = DateTime.UtcNow
+                };
+                job.QuestionBankItems.Add(item);
+            }
+
+            await _context.SaveChangesAsync();
+
+            _eventLogger.LogEvent("JobPosting",
+                $"JD approved and {generatedQuestions.Count} questions generated (Id: {id})",
+                _eventLogger.OnEntityUpdated);
+
+            return MapToDetailResponseDto(job);
+        }
+
+        public async Task<JobPostingDetailResponseDto> GetDetailByIdAsync(int id)
+        {
+            var job = await _context.JobPostings
+                .AsNoTracking()
+                .Include(j => j.Department)
+                .Include(j => j.Applications)
+                .Include(j => j.QuestionBankItems)
+                .FirstOrDefaultAsync(j => j.Id == id)
+                ?? throw new NotFoundException("JobPosting", id);
+
+            return MapToDetailResponseDto(job);
+        }
+
+        public async Task<List<QuestionBankItemResponseDto>> GetQuestionsAsync(int jobPostingId)
+        {
+            var jobExists = await _context.JobPostings.AnyAsync(j => j.Id == jobPostingId);
+            if (!jobExists)
+                throw new NotFoundException("JobPosting", jobPostingId);
+
+            var questions = await _context.QuestionBankItems
+                .AsNoTracking()
+                .Where(q => q.JobPostingId == jobPostingId)
+                .OrderBy(q => q.OrderIndex)
+                .ToListAsync();
+
+            return questions.Select(MapToQuestionBankItemResponseDto).ToList();
+        }
+
+        // ============================================================
+        // Private Helpers — Phase 1 Mapping
+        // ============================================================
+
+        private static JobPostingDetailResponseDto MapToDetailResponseDto(JobPosting job) => new()
+        {
+            Id = job.Id,
+            Title = job.Title,
+            Status = job.Status.ToString(),
+            DepartmentName = job.Department?.Name ?? "N/A",
+            DepartmentId = job.DepartmentId,
+            Level = job.Level.ToString(),
+            WorkMode = job.WorkMode.ToString(),
+            CoreSkills = job.CoreSkills,
+            YearsOfExperience = job.YearsOfExperience,
+            SalaryRange = job.SalaryRange != null
+                ? new SalaryRangeDto
+                {
+                    SalaryMin = job.SalaryRange.SalaryMin,
+                    SalaryMax = job.SalaryRange.SalaryMax,
+                    Currency = job.SalaryRange.Currency.ToString()
+                }
+                : null,
+            AdditionalNotes = job.AdditionalNotes,
+            Certifications = job.Certifications,
+            JdContent = job.JdContent != null
+                ? new JdContentDto
+                {
+                    Intro = job.JdContent.Intro,
+                    Responsibilities = job.JdContent.Responsibilities,
+                    MustHave = job.JdContent.MustHave,
+                    NiceToHave = job.JdContent.NiceToHave,
+                    Benefits = job.JdContent.Benefits
+                }
+                : null,
+            CreatedBy = job.CreatedBy,
+            CreatedDate = job.CreatedDate,
+            ApprovedAt = job.ApprovedAt,
+            ApplicationCount = job.Applications?.Count ?? 0,
+            QuestionCount = job.QuestionBankItems?.Count ?? 0
+        };
+
+        private static QuestionBankItemResponseDto MapToQuestionBankItemResponseDto(QuestionBankItem q) => new()
+        {
+            Id = q.Id,
+            JobPostingId = q.JobPostingId,
+            Question = q.Question,
+            Category = q.Category.ToString(),
+            Difficulty = q.Difficulty.ToString(),
+            ScoringRubric = q.ScoringRubric != null
+                ? new ScoringRubricDto
+                {
+                    Excellent = q.ScoringRubric.Excellent,
+                    Good = q.ScoringRubric.Good,
+                    Acceptable = q.ScoringRubric.Acceptable,
+                    Poor = q.ScoringRubric.Poor
+                }
+                : null,
+            OrderIndex = q.OrderIndex,
+            CreatedDate = q.CreatedDate
+        };
     }
 }
