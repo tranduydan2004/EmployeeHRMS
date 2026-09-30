@@ -5,8 +5,12 @@ import { useJobPostings, useJobPostingMutations } from '../hooks/useJobPostings'
 import { useDepartments } from '@/features/departments';
 import { usePermission } from '@/hooks/usePermission';
 import JobPostingFormModal from './JobPostingFormModal';
+import SmartJdModal from './SmartJd/SmartJdModal';
+import { useSmartJdStore } from '../stores/useSmartJdStore';
+import jobPostingApi from '@/api/jobPostingApi';
+import { toast } from '@/components/Toast/useToastStore';
 import { Card, Button, Badge, Skeleton, SearchBar, Select, Pagination } from '@/components';
-import { Briefcase, Building2, Calendar, Plus, Edit, Trash2, ArrowRight, Filter } from 'lucide-react';
+import { Briefcase, Building2, Calendar, Plus, Edit, Trash2, ArrowRight, Filter, Sparkles } from 'lucide-react';
 
 export default function JobPostingList() {
   const location = useLocation();
@@ -42,10 +46,35 @@ export default function JobPostingList() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
+  const openSmartJdModal = useSmartJdStore((state) => state.openModal);
 
   const handleOpenCreate = () => {
     setSelectedJob(null);
     setIsModalOpen(true);
+  };
+
+  const handleOpenSmartJd = () => {
+    openSmartJdModal(null, 1);
+  };
+
+  const handleInspectSmartJd = async (job) => {
+    try {
+      const res = await jobPostingApi.getDetail(job.id);
+      const detail = res.data;
+      if (detail.status === 'Approved' || detail.status === 'Published') {
+        try {
+          const qRes = await jobPostingApi.getQuestions(job.id);
+          useSmartJdStore.getState().setApprovedJob(detail, qRes.data || []);
+        } catch {
+          // If questions don't exist yet, open in read-only inspection at Step 2
+          openSmartJdModal(detail, 2);
+        }
+      } else {
+        openSmartJdModal(detail, 2);
+      }
+    } catch (err) {
+      toast.error('Không thể tải chi tiết JD thông minh');
+    }
   };
 
   const handleOpenEdit = (job) => {
@@ -80,6 +109,7 @@ export default function JobPostingList() {
   const statusOptions = [
     { value: '', label: 'Tất cả trạng thái' },
     { value: 'Draft', label: 'Bản nháp (Draft)' },
+    { value: 'Approved', label: 'Đã duyệt (Approved)' },
     { value: 'Published', label: 'Đang mở (Published)' },
     { value: 'Closed', label: 'Đã đóng (Closed)' },
   ];
@@ -98,9 +128,23 @@ export default function JobPostingList() {
           </p>
         </div>
         {canManageJobPostings && (
-          <Button variant="primary" icon={Plus} onClick={handleOpenCreate}>
-            Đăng Tin Tuyển Dụng
-          </Button>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button
+              variant="primary"
+              icon={Sparkles}
+              onClick={handleOpenSmartJd}
+              style={{
+                background: 'linear-gradient(135deg, var(--primary-600) 0%, #7c3aed 100%)',
+                border: 'none',
+                boxShadow: '0 4px 10px rgba(99, 102, 241, 0.35)',
+              }}
+            >
+              ✨ Tạo JD Bằng AI
+            </Button>
+            <Button variant="secondary" icon={Plus} onClick={handleOpenCreate}>
+              Đăng Tin Thủ Công
+            </Button>
+          </div>
         )}
       </div>
 
@@ -198,7 +242,7 @@ export default function JobPostingList() {
                     marginBottom: '1rem',
                   }}
                 >
-                  {job.description || 'Chưa có mô tả chi tiết.'}
+                  {job.description || job.intro || 'Chưa có mô tả chi tiết.'}
                 </p>
               </div>
 
@@ -211,6 +255,19 @@ export default function JobPostingList() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   {canManageJobPostings && (
                     <>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        onClick={() => handleInspectSmartJd(job)}
+                        title={
+                          job.status === 'Draft'
+                            ? 'Tiếp tục soạn thảo & Duyệt JD (AI)'
+                            : 'Xem JD & Ngân hàng câu hỏi (AI)'
+                        }
+                        style={{ color: '#7c3aed' }}
+                      >
+                        <Sparkles size={16} />
+                      </button>
                       <button
                         type="button"
                         className="btn-icon"
@@ -258,13 +315,17 @@ export default function JobPostingList() {
       )}
 
       {canManageJobPostings && (
-        <JobPostingFormModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          onSave={handleSave}
-          selectedJob={selectedJob}
-          isLoading={isCreating || isUpdating}
-        />
+        <>
+          <JobPostingFormModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            onSave={handleSave}
+            selectedJob={selectedJob}
+            isLoading={isCreating || isUpdating}
+          />
+
+          <SmartJdModal />
+        </>
       )}
     </div>
   );

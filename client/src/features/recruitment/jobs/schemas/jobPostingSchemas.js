@@ -13,3 +13,6 @@ export const jobPostingSchema = z.object({
   requirements: z.string().max(5000, 'Yêu cầu không vượt quá 5000 ký tự').optional(),
   status: z.enum(['Draft', 'Published', 'Closed']).optional(),
 });
+
+export * from './smartJdSchemas';
+

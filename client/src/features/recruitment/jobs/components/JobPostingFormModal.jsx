@@ -65,11 +65,17 @@ export default function JobPostingFormModal({
       label: d.name,
     })) || [];
 
-  const statusOptions = [
-    { value: 'Draft', label: 'Bản nháp (Draft)' },
-    { value: 'Published', label: 'Đang mở tuyển (Published)' },
-    { value: 'Closed', label: 'Đã đóng tuyển (Closed)' },
-  ];
+  const isApprovedOrPublished = selectedJob?.status === 'Approved' || selectedJob?.status === 'Published';
+  const statusOptions = isApprovedOrPublished
+    ? [
+        { value: 'Published', label: 'Đang mở tuyển (Published)' },
+        { value: 'Closed', label: 'Đã đóng tuyển (Closed)' },
+      ]
+    : [
+        { value: 'Draft', label: 'Bản nháp (Draft)' },
+        { value: 'Published', label: 'Đang mở tuyển (Published)' },
+        { value: 'Closed', label: 'Đã đóng tuyển (Closed)' },
+      ];
 
   return (
     <Modal
@@ -92,6 +98,28 @@ export default function JobPostingFormModal({
       }
     >
       <form onSubmit={handleSubmit(onSubmit)}>
+        {selectedJob?.jdContent && (
+          <div
+            style={{
+              padding: '0.75rem 1rem',
+              backgroundColor: '#f5f3ff',
+              border: '1px solid #ddd6fe',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: '1rem',
+              fontSize: '0.85rem',
+              color: '#5b21b6',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <span>✨</span>
+            <span>
+              Tin tuyển dụng này có nội dung <strong>Smart JD (AI)</strong>. Barem câu hỏi & nội dung chi tiết được đồng bộ tự động với Smart JD.
+            </span>
+          </div>
+        )}
+
         <Input
           label="Tiêu đề vị trí tuyển dụng"
           placeholder="Ví dụ: Senior .NET Core Developer, HR Specialist..."

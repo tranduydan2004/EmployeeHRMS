@@ -307,7 +307,7 @@ export default function ApplyModal({ isOpen, onClose, job, candidate, onApplied 
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
-                <FileText size={22} color="var(--primary-600)" style={{ flexShrink: 0 }} />
+                <FileText size={22} color="var(--primary-600)" style={{ flexshrink: 0 }} />
                 <div style={{ overflow: 'hidden' }}>
                   <div style={{ fontWeight: 500, fontSize: '0.875rem', color: 'var(--slate-900)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                     {selectedFile.name}
