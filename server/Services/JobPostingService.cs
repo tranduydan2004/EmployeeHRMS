@@ -47,7 +47,7 @@ namespace EmployeeHRMS.Api.Services
         {
             Id = job.Id,
             Title = job.Title,
-            Description = job.Description,
+            Description = !string.IsNullOrWhiteSpace(job.Description) ? job.Description : job.JdContent?.Intro,
             Requirements = job.Requirements,
             Status = job.Status.ToString(),
             DepartmentName = job.Department?.Name ?? "N/A",
@@ -188,7 +188,9 @@ namespace EmployeeHRMS.Api.Services
 
         public async Task<bool> UpdateAsync(int id, JobPostingUpdateDto dto)
         {
-            var job = await _context.JobPostings.FindAsync(id)
+            var job = await _context.JobPostings
+                .Include(j => j.QuestionBankItems)
+                .FirstOrDefaultAsync(j => j.Id == id)
                 ?? throw new NotFoundException("JobPosting", id);
 
             // Kiểm tra DepartmentId tồn tại (ràng buộc FK)
@@ -196,11 +198,61 @@ namespace EmployeeHRMS.Api.Services
             if (!departmentExists)
                 throw new BusinessRuleException($"Department with ID {dto.DepartmentId} does not exist.");
 
+            // Kiểm tra chuyển trạng thái (State Transition Safeguard)
+            if (job.Status != dto.Status)
+            {
+                if (dto.Status == JobPostingStatus.Published)
+                {
+                    // Nếu là tin có JdContent (Smart JD) nhưng vẫn ở trạng thái Draft (chưa Approve, chưa có câu hỏi phỏng vấn)
+                    if (job.JdContent != null && job.Status == JobPostingStatus.Draft && job.QuestionBankItems.Count == 0)
+                    {
+                        throw new BusinessRuleException("Tin tuyển dụng có bản thảo JD thông minh cần được duyệt (Approve) và sinh bộ câu hỏi phỏng vấn trước khi xuất bản.");
+                    }
+                }
+                else if (dto.Status == JobPostingStatus.Draft && (job.Status == JobPostingStatus.Approved || job.Status == JobPostingStatus.Published))
+                {
+                    throw new BusinessRuleException($"Không thể chuyển tin tuyển dụng từ trạng thái {job.Status} về lại Bản nháp (Draft) để đảm bảo tính đồng bộ với bộ câu hỏi phỏng vấn.");
+                }
+
+                job.Status = dto.Status;
+            }
+
             job.Title = dto.Title;
-            job.Description = dto.Description;
-            job.Requirements = dto.Requirements;
             job.DepartmentId = dto.DepartmentId;
-            job.Status = dto.Status;
+
+            // Cập nhật Description/Requirements nếu có truyền (hỗ trợ tin legacy)
+            if (dto.Description != null)
+                job.Description = dto.Description;
+
+            if (dto.Requirements != null)
+                job.Requirements = dto.Requirements;
+
+            // Cập nhật các trường cấu trúc Phase 1 nếu có truyền
+            if (dto.Level.HasValue)
+                job.Level = dto.Level.Value;
+
+            if (dto.WorkMode.HasValue)
+                job.WorkMode = dto.WorkMode.Value;
+
+            if (dto.CoreSkills != null)
+                job.CoreSkills = dto.CoreSkills;
+
+            if (dto.YearsOfExperience.HasValue)
+                job.YearsOfExperience = dto.YearsOfExperience.Value;
+
+            if (dto.Certifications != null)
+                job.Certifications = dto.Certifications;
+
+            if (dto.AdditionalNotes != null)
+                job.AdditionalNotes = dto.AdditionalNotes;
+
+            if (dto.SalaryMin.HasValue || dto.SalaryMax.HasValue || dto.Currency.HasValue)
+            {
+                job.SalaryRange ??= new SalaryRange();
+                if (dto.SalaryMin.HasValue) job.SalaryRange.SalaryMin = dto.SalaryMin.Value;
+                if (dto.SalaryMax.HasValue) job.SalaryRange.SalaryMax = dto.SalaryMax.Value;
+                if (dto.Currency.HasValue) job.SalaryRange.Currency = dto.Currency.Value;
+            }
 
             await _context.SaveChangesAsync();
 
@@ -254,7 +306,7 @@ namespace EmployeeHRMS.Api.Services
                     }
                     : null,
                 AdditionalNotes = dto.AdditionalNotes,
-                Certifications = dto.Certifications,
+                Certifications = dto.Certifications ?? new List<string>(),
                 Status = JobPostingStatus.Draft,
                 CreatedBy = createdBy,
                 CreatedDate = DateTime.UtcNow
@@ -273,12 +325,13 @@ namespace EmployeeHRMS.Api.Services
                 SalaryMax = dto.SalaryMax,
                 Currency = dto.Currency,
                 AdditionalNotes = dto.AdditionalNotes,
-                Certifications = dto.Certifications
+                Certifications = dto.Certifications ?? new List<string>()
             };
 
 
             var jdContent = await _jdGenerationService.GenerateJdAsync(promptData);
             jobPosting.JdContent = jdContent;
+            jobPosting.Description = jdContent.Intro;
 
             await _context.JobPostings.AddAsync(jobPosting);
             await _context.SaveChangesAsync();
@@ -313,6 +366,7 @@ namespace EmployeeHRMS.Api.Services
                 NiceToHave = dto.NiceToHave,
                 Benefits = dto.Benefits
             };
+            job.Description = dto.Intro;
 
             await _context.SaveChangesAsync();
 
@@ -441,6 +495,8 @@ namespace EmployeeHRMS.Api.Services
                     Benefits = job.JdContent.Benefits
                 }
                 : null,
+            Description = job.Description,
+            Requirements = job.Requirements,
             CreatedBy = job.CreatedBy,
             CreatedDate = job.CreatedDate,
             ApprovedAt = job.ApprovedAt,

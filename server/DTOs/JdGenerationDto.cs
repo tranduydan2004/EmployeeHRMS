@@ -44,7 +44,7 @@ namespace EmployeeHRMS.Api.DTOs
         [StringLength(2000, ErrorMessage = "Additional notes must not exceed 2000 characters.")]
         public string? AdditionalNotes { get; set; }
 
-        public List<string> Certifications { get; set; } = new();
+        public List<string>? Certifications { get; set; } = new();
     }
 
     // === DTO cập nhật nội dung JdContent sau khi HR chỉnh sửa bản thảo ===
@@ -87,6 +87,13 @@ namespace EmployeeHRMS.Api.DTOs
 
         // Output từ LLM
         public JdContentDto? JdContent { get; set; }
+
+        // Trường cũ (giữ lại để tương thích ngược khi hiển thị tin cũ)
+        [Obsolete("Dùng JdContent thay thế, giữ lại cho tương thích ngược")]
+        public string? Description { get; set; }
+
+        [Obsolete("Dùng JdContent thay thế, giữ lại cho tương thích ngược")]
+        public string? Requirements { get; set; }
 
         // Audit
         public string? CreatedBy { get; set; }

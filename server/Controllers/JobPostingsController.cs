@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using EmployeeHRMS.Api.DTOs;
 using EmployeeHRMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -96,7 +97,12 @@ namespace EmployeeHRMS.Api.Controllers
         [HttpPost("draft-jd")]
         public async Task<IActionResult> DraftJd([FromBody] DraftJdRequestDto dto)
         {
-            var createdBy = User.Identity?.Name ?? "HR";
+            var userEmail = User.FindFirst(ClaimTypes.Email)?.Value ?? User.Identity?.Name;
+            var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+            var createdBy = !string.IsNullOrWhiteSpace(userEmail)
+                ? (string.IsNullOrWhiteSpace(userRole) ? userEmail : $"{userRole} ({userEmail})")
+                : (userRole ?? "HR");
+
             var result = await _jobPostingService.DraftJdAsync(dto, createdBy);
             return CreatedAtAction(nameof(GetDetailById), new { id = result.Id }, result);
         }

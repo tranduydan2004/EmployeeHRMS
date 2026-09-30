@@ -168,10 +168,12 @@ namespace EmployeeHRMS.Api.Data
                 });
 
                 entity.Property(j => j.CoreSkills)
-                    .HasColumnType("text[]");
+                    .HasColumnType("text[]")
+                    .HasDefaultValueSql("'{}'::text[]");
 
                 entity.Property(j => j.Certifications)
-                    .HasColumnType("text[]");
+                    .HasColumnType("text[]")
+                    .HasDefaultValueSql("'{}'::text[]");
             });
 
             modelBuilder.Entity<QuestionBankItem>(entity =>
@@ -209,9 +211,8 @@ namespace EmployeeHRMS.Api.Data
             // ============================================================
             // Seed Data — Admin user mặc định
             // ============================================================
-            var adminUser = new ApplicationUser("admin@hrms.com", string.Empty, UserRole.Admin);
-            var hasher = new PasswordHasher<ApplicationUser>();
-            var adminPasswordHash = hasher.HashPassword(adminUser, "Admin@123");
+            // Hash cố định của "Admin@123" để tránh EF Core tự sinh UpdateData ngẫu nhiên trong mỗi migration
+            const string adminPasswordHash = "AQAAAAIAAYagAAAAEBGJ3NFHIv/x425xUQok7+FoqklcQiH4Fko7b4eh5wOnEjEgnbHwWsLiuznU4ns/qA==";
 
             modelBuilder.Entity<ApplicationUser>().HasData(new
             {

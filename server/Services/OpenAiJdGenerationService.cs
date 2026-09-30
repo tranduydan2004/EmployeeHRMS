@@ -67,7 +67,7 @@ namespace EmployeeHRMS.Api.Services
             - Be specific and actionable — avoid vague phrases like "various tasks"
             - Do NOT invent company-specific information (company name, culture, perks) unless explicitly provided
             - If salary range is provided, mention competitive compensation in benefits but do NOT state exact figures in the JD
-            - Tailor responsibilities and requirements to match the specified level (Intern vs Senior vs Lead)
+            - Tailor responsibilities and requirements to match the specified level (Intern vs Fresher vs Junior vs Middle vs Senior vs Lead)
             - Each array item should be a complete, standalone sentence or phrase
             """;
 
@@ -212,7 +212,7 @@ namespace EmployeeHRMS.Api.Services
                 lines.Add($"- Salary Range: {string.Join(", ", salaryParts)}");
             }
 
-            if (data.Certifications.Count > 0)
+            if (data.Certifications != null && data.Certifications.Count > 0)
                 lines.Add($"- Preferred Certifications: {string.Join(", ", data.Certifications)}");
 
             if (!string.IsNullOrWhiteSpace(data.AdditionalNotes))
