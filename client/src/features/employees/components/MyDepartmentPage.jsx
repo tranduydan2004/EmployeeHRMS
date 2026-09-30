@@ -135,12 +135,12 @@ export default function MyDepartmentPage() {
           {filteredColleagues.map((colleague) => {
             const initials = colleague.fullName
               ? colleague.fullName
-                  .split(' ')
-                  .filter(Boolean)
-                  .slice(-2)
-                  .map((n) => n[0])
-                  .join('')
-                  .toUpperCase()
+                .split(' ')
+                .filter(Boolean)
+                .slice(-2)
+                .map((n) => n[0])
+                .join('')
+                .toUpperCase()
               : 'NV';
 
             return (
@@ -243,7 +243,7 @@ export default function MyDepartmentPage() {
                       fontWeight: 500,
                       textDecoration: 'none',
                       fontSize: '0.8rem',
-                      flexShrink: 0,
+                      flexshrink: 0,
                       marginLeft: '0.5rem',
                     }}
                     title={`Gửi email cho ${colleague.fullName}`}

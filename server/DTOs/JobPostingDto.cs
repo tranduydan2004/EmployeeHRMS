@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using EmployeeHRMS.Api.DTOs.Common;
 using EmployeeHRMS.Api.Models;
+using EmployeeHRMS.Api.Models.ValueObjects;
 
 namespace EmployeeHRMS.Api.DTOs
 {
@@ -49,6 +51,17 @@ namespace EmployeeHRMS.Api.DTOs
 
         [Required(ErrorMessage = "Status is required.")]
         public JobPostingStatus Status { get; set; }
+
+        // Tham số cấu trúc Phase 1 (Tùy chọn khi cập nhật)
+        public JobLevel? Level { get; set; }
+        public WorkMode? WorkMode { get; set; }
+        public List<string>? CoreSkills { get; set; }
+        public int? YearsOfExperience { get; set; }
+        public decimal? SalaryMin { get; set; }
+        public decimal? SalaryMax { get; set; }
+        public Currency? Currency { get; set; }
+        public List<string>? Certifications { get; set; }
+        public string? AdditionalNotes { get; set; }
     }
 
     // === DTO trả về — Projection kèm DepartmentName + ApplicationCount ===

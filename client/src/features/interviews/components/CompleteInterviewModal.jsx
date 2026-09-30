@@ -129,7 +129,7 @@ export default function CompleteInterviewModal({
               gap: '0.65rem',
             }}
           >
-            <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <AlertTriangle size={20} style={{ flexshrink: 0, marginTop: '2px' }} />
             <div>
               <strong>Lưu ý quan trọng:</strong> Sau khi kết thúc, kết quả đánh giá sẽ được chốt và thông báo
               sẽ được gửi tới <strong>Admin & HR</strong>. Bạn sẽ không thể thêm hoặc sửa đổi câu hỏi, câu trả

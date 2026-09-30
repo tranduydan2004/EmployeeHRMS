@@ -146,7 +146,7 @@ export default function ResetPasswordForm() {
       {/* INLINE error for token invalid/expired — KHÔNG dùng Toast */}
       {formError && (
         <div className="form-error-banner" role="alert">
-          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          <AlertTriangle size={16} style={{ flexshrink: 0 }} />
           <span>{formError}</span>
           <Link to="/forgot-password" style={{ fontWeight: 600, color: 'var(--primary-600)', fontSize: '0.8125rem', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
             Yêu cầu link mới

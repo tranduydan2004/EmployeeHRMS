@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useSidebar } from '../contexts/SidebarContext';
 import { useAuthStore } from '../features/auth';
 import {
@@ -17,6 +17,23 @@ import {
 export default function Sidebar() {
   const { isCollapsed, isMobileOpen } = useSidebar();
   const role = useAuthStore((state) => state.role);
+  const location = useLocation();
+
+  const isLinkActive = (to) => {
+    // Với mục Tin Tuyển Dụng (/admin/jobs hoặc /jobs): giữ active khi ở danh sách hoặc xem chi tiết tin /jobs/:id
+    if (to === '/admin/jobs' || to === '/jobs') {
+      return (
+        location.pathname === '/admin/jobs' ||
+        location.pathname === '/jobs' ||
+        location.pathname.startsWith('/jobs/') ||
+        location.pathname.startsWith('/admin/jobs/')
+      );
+    }
+    if (to === '/dashboard') {
+      return location.pathname === '/dashboard';
+    }
+    return location.pathname === to || location.pathname.startsWith(`${to}/`);
+  };
 
   const getNavLinks = () => {
     switch (role) {
@@ -82,7 +99,7 @@ export default function Sidebar() {
             <NavLink
               key={link.to}
               to={link.to}
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              className={() => `nav-item ${isLinkActive(link.to) ? 'active' : ''}`}
               title={isCollapsed ? link.label : ''}
             >
               <Icon className="nav-item-icon" />
