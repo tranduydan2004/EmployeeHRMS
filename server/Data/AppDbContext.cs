@@ -23,6 +23,7 @@ namespace EmployeeHRMS.Api.Data
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<QuestionBankItem> QuestionBankItems { get; set; }
+        public DbSet<InterviewAnswer> InterviewAnswers { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -85,6 +86,20 @@ namespace EmployeeHRMS.Api.Data
                 .HasOne(q => q.Interview)
                 .WithMany(i => i.Questions)
                 .HasForeignKey(q => q.InterviewId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // InterviewAnswer → Interview (Many-to-One, Cascade delete)
+            modelBuilder.Entity<InterviewAnswer>()
+                .HasOne(a => a.Interview)
+                .WithMany(i => i.Answers)
+                .HasForeignKey(a => a.InterviewId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // InterviewAnswer → InterviewQuestion (One-to-One, Cascade delete)
+            modelBuilder.Entity<InterviewAnswer>()
+                .HasOne(a => a.InterviewQuestion)
+                .WithOne(q => q.Answer)
+                .HasForeignKey<InterviewAnswer>(a => a.InterviewQuestionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // ApplicationUser → Employee (Optional One-to-One)
@@ -187,6 +202,22 @@ namespace EmployeeHRMS.Api.Data
                 {
                     b.ToJson();
                 });
+            });
+
+            modelBuilder.Entity<Interview>(entity =>
+            {
+                entity.HasIndex(i => i.InviteToken).IsUnique();
+                entity.Property(i => i.InviteToken).HasDefaultValueSql("gen_random_uuid()");
+            });
+
+            modelBuilder.Entity<InterviewAnswer>(entity =>
+            {
+                entity.HasIndex(a => a.InterviewQuestionId).IsUnique();
+                entity.Property(a => a.AudioStorageKey).HasMaxLength(500).IsRequired();
+                entity.Property(a => a.AudioMimeType).HasMaxLength(100).IsRequired();
+                entity.Property(a => a.TranscriptSegments).HasColumnType("jsonb");
+                entity.Property(a => a.AiScore).HasPrecision(5, 2);
+                entity.Property(a => a.Status).HasConversion<int>();
             });
 
             // ============================================================

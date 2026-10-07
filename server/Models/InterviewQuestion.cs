@@ -1,4 +1,4 @@
-﻿namespace EmployeeHRMS.Api.Models
+namespace EmployeeHRMS.Api.Models
 {
     public class InterviewQuestion
     {
@@ -14,5 +14,8 @@
         public string? AiFeedback { get; set; } // Nhận xét AI cho câu trả lời này
 
         public int OrderIndex { get; set; } // Thứ tự câu hỏi trong buổi phỏng vấn 
+        
+        // 1-to-1: Mỗi câu hỏi chỉ có tối đa 1 audio response
+        public InterviewAnswer? Answer { get; set; }
     }
 }

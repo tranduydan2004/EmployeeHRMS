@@ -24,6 +24,9 @@ namespace EmployeeHRMS.Api.Models
 
         public DateTime ScheduledDate { get; set; }
 
+        // Token bảo mật dùng cho candidate truy cập buổi phỏng vấn audio (chống IDOR)
+        public Guid InviteToken { get; set; } = Guid.NewGuid();
+
         // DDD: private set — chỉ thay đổi qua domain methods
         public InterviewStatus Status { get; private set; }
 
@@ -32,6 +35,7 @@ namespace EmployeeHRMS.Api.Models
         public string? AiOverallSummary { get; private set; }
 
         public ICollection<InterviewQuestion> Questions { get; set; } = new List<InterviewQuestion>();
+        public ICollection<InterviewAnswer> Answers { get; set; } = new List<InterviewAnswer>();
 
         // ============================================================
         // Domain Methods — Quản lý trạng thái & AI scoring
