@@ -25,15 +25,18 @@ namespace EmployeeHRMS.Api.Controllers
         private readonly IInterviewService _interviewService;
         private readonly IAuthorizationService _authorizationService;
         private readonly INotificationService _notificationService;
+        private readonly IAudioIngestionService _audioIngestionService;
 
         public InterviewsController(
             IInterviewService interviewService,
             IAuthorizationService authorizationService,
-            INotificationService notificationService)
+            INotificationService notificationService,
+            IAudioIngestionService audioIngestionService)
         {
             _interviewService = interviewService;
             _authorizationService = authorizationService;
             _notificationService = notificationService;
+            _audioIngestionService = audioIngestionService;
         }
 
         // GET: api/interviews — Lọc tự động theo Role trong Service
@@ -233,6 +236,97 @@ namespace EmployeeHRMS.Api.Controllers
             }
 
             return NoContent();
+        }
+
+        // ============================================================
+        // Audio Interview Ingestion & Status Polling (Phase 3)
+        // ============================================================
+
+        /// <summary>
+        /// POST: api/interviews/{inviteToken}/answers/{questionId}
+        /// Ứng viên nộp file ghi âm trả lời (multipart/form-data) kèm telemetry chống gian lận.
+        /// Public access với InviteToken bảo mật (chống IDOR).
+        /// Tiếp nhận audio, validate 4 lớp, lưu storage, lưu DB (Pending), và enqueue vào Channel queue.
+        /// </summary>
+        [HttpPost("{inviteToken:guid}/answers/{questionId:int}")]
+        [AllowAnonymous]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> SubmitAnswerAudio(
+            Guid inviteToken,
+            int questionId,
+            [FromForm] AudioAnswerUploadDto dto,
+            CancellationToken cancellationToken)
+        {
+            var result = await _audioIngestionService.ProcessAudioUploadAsync(
+                inviteToken,
+                questionId,
+                dto,
+                cancellationToken);
+
+            return CreatedAtAction(
+                nameof(GetAnswerStatus),
+                new { inviteToken, questionId },
+                result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/{inviteToken}/answers/{questionId}
+        /// Endpoint polling trạng thái xử lý audio của câu trả lời (Pending -> Transcribing -> Scoring -> Completed / Failed).
+        /// </summary>
+        [HttpGet("{inviteToken:guid}/answers/{questionId:int}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetAnswerStatus(
+            Guid inviteToken,
+            int questionId,
+            CancellationToken cancellationToken)
+        {
+            var result = await _audioIngestionService.GetAnswerStatusAsync(
+                inviteToken,
+                questionId,
+                cancellationToken);
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/audio/{*storageKey}
+        /// Stream file ghi âm phục vụ playback trên web (Admin, HR, Interviewer).
+        /// Hỗ trợ HTTP 206 Partial Content để tua audio mượt mà.
+        /// </summary>
+        [HttpGet("audio/{*storageKey}")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> StreamAudio(
+            string storageKey,
+            [FromServices] IAudioStorageService audioStorageService,
+            CancellationToken cancellationToken)
+        {
+            var stream = await audioStorageService.GetAudioStreamAsync(storageKey, cancellationToken);
+
+            var mimeType = "audio/webm";
+            if (storageKey.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) || storageKey.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase))
+                mimeType = "audio/mp4";
+            else if (storageKey.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
+                mimeType = "audio/wav";
+            else if (storageKey.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+                mimeType = "audio/mpeg";
+            else if (storageKey.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
+                mimeType = "audio/ogg";
+
+            return File(stream, mimeType, enableRangeProcessing: true);
+        }
+
+        /// <summary>
+        /// POST: api/interviews/recovery/zombies
+        /// Quét và phục hồi các tác vụ bóc băng bị kẹt hoặc quá hạn (Admin, HR).
+        /// </summary>
+        [HttpPost("recovery/zombies")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> RecoverZombieJobs(
+            [FromServices] ITranscriptionRecoveryService recoveryService,
+            CancellationToken cancellationToken)
+        {
+            var result = await recoveryService.RecoverZombieJobsAsync(isStartup: false, cancellationToken);
+            return Ok(result);
         }
     }
 }
