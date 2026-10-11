@@ -29,5 +29,8 @@ namespace EmployeeHRMS.Api.Configuration
 
         /// <summary>Số lần retry tối đa khi LLM trả về JSON không hợp lệ.</summary>
         public int MaxRetries { get; set; } = 2;
+
+        /// <summary>Model dùng cho Whisper Speech-to-Text (vd: whisper-1).</summary>
+        public string WhisperModel { get; set; } = "whisper-1";
     }
 }
