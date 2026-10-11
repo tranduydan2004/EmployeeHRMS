@@ -233,6 +233,12 @@ namespace EmployeeHRMS.Api
             // File storage & validation services
             builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
             builder.Services.AddScoped<IFileValidatorService, FileValidatorService>();
+            builder.Services.AddScoped<IAudioStorageService, LocalStorageService>();
+            builder.Services.AddSingleton<IAudioTranscriptionQueue, AudioTranscriptionQueue>();
+            builder.Services.AddScoped<IAudioIngestionService, AudioIngestionService>();
+            builder.Services.AddScoped<ISpeechToTextService, WhisperTranscriptionService>();
+            builder.Services.AddScoped<ITranscriptionRecoveryService, TranscriptionRecoveryService>();
+            builder.Services.AddHostedService<TranscriptionWorker>();
 
             // Email service
             builder.Services.AddScoped<IEmailService, MailKitEmailService>();

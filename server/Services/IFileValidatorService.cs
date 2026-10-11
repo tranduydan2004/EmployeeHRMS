@@ -12,5 +12,15 @@ namespace EmployeeHRMS.Api.Services
         /// Ném BusinessRuleException nếu file không hợp lệ.
         /// </summary>
         Task ValidateResumeFileAsync(IFormFile file);
+
+        /// <summary>
+        /// Xác thực file ghi âm phỏng vấn (IFormFile) theo 4 lớp bảo mật (Size, Extension, MIME, Magic Bytes).
+        /// </summary>
+        Task ValidateAudioFileAsync(IFormFile file);
+
+        /// <summary>
+        /// Xác thực stream audio độc lập với IFormFile để hỗ trợ unit test và non-HTTP callers.
+        /// </summary>
+        Task ValidateAudioStreamAsync(Stream stream, string fileName, string contentType, long length);
     }
 }
