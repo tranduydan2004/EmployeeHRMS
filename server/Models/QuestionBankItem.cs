@@ -27,6 +27,10 @@ namespace EmployeeHRMS.Api.Models
         public JobLevel Difficulty { get; set; }
         public ScoringRubric? ScoringRubric { get; set; }
 
+        // Time-boxing override theo từng câu (giây). null = dùng mặc định trong appsettings.
+        public int? ThinkSeconds { get; set; }
+        public int? AnswerSeconds { get; set; }
+
         public int OrderIndex { get; set; }
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     }

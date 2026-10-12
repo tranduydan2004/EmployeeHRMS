@@ -62,6 +62,12 @@ namespace EmployeeHRMS.Api.Models
         /// </summary>
         public double OutOfFocusDurationSeconds { get; set; }
 
+        /// <summary>
+        /// Flag do CLIENT tự khai báo (whitelist, ví dụ "MicDisconnected"). Chỉ để HR tham khảo,
+        /// KHÔNG dùng để tự động tính điểm. Flag do server tự tính (Phase 4) lưu ở trường riêng.
+        /// </summary>
+        public List<string> Flags { get; set; } = new();
+
         // ============================================================
         // STT Output (Whisper API - Phase 3)
         // ============================================================

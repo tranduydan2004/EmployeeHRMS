@@ -237,8 +237,14 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Property<int>("ApplicationId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("ConsentedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("InterviewerId")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("InviteExpiresAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("InviteToken")
                         .ValueGeneratedOnAdd()
@@ -303,6 +309,12 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
+                    b.Property<List<string>>("Flags")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
+
                     b.Property<int>("InterviewId")
                         .HasColumnType("integer");
 
@@ -358,6 +370,9 @@ namespace EmployeeHRMS.Api.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
+                    b.Property<int?>("AnswerSeconds")
+                        .HasColumnType("integer");
+
                     b.Property<string>("CandidateAnswer")
                         .HasColumnType("text");
 
@@ -371,11 +386,19 @@ namespace EmployeeHRMS.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int?>("ThinkSeconds")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("InterviewId");
 
-                    b.ToTable("InterviewQuestions");
+                    b.ToTable("InterviewQuestions", t =>
+                        {
+                            t.HasCheckConstraint("CK_InterviewQuestions_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
+
+                            t.HasCheckConstraint("CK_InterviewQuestions_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 300");
+                        });
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.JobPosting", b =>
@@ -511,6 +534,9 @@ namespace EmployeeHRMS.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AnswerSeconds")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
@@ -530,11 +556,19 @@ namespace EmployeeHRMS.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int?>("ThinkSeconds")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("JobPostingId");
 
-                    b.ToTable("QuestionBankItems");
+                    b.ToTable("QuestionBankItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_QuestionBankItems_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
+
+                            t.HasCheckConstraint("CK_QuestionBankItems_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 300");
+                        });
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.RefreshToken", b =>
@@ -673,7 +707,40 @@ namespace EmployeeHRMS.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.OwnsOne("EmployeeHRMS.Api.Models.ValueObjects.ScoringRubric", "ScoringRubric", b1 =>
+                        {
+                            b1.Property<int>("InterviewQuestionId")
+                                .HasColumnType("integer");
+
+                            b1.Property<string>("Acceptable")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.Property<string>("Excellent")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.Property<string>("Good")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.Property<string>("Poor")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.HasKey("InterviewQuestionId");
+
+                            b1.ToTable("InterviewQuestions");
+
+                            b1.ToJson("ScoringRubric");
+
+                            b1.WithOwner()
+                                .HasForeignKey("InterviewQuestionId");
+                        });
+
                     b.Navigation("Interview");
+
+                    b.Navigation("ScoringRubric");
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.JobPosting", b =>

@@ -202,6 +202,27 @@ namespace EmployeeHRMS.Api.Data
                 {
                     b.ToJson();
                 });
+
+                entity.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_QuestionBankItems_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 40");
+                    t.HasCheckConstraint("CK_QuestionBankItems_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
+                });
+            });
+
+            modelBuilder.Entity<InterviewQuestion>(entity =>
+            {
+                // Snapshot rubric: cột jsonb riêng, owner riêng (không chia sẻ instance với QuestionBankItem)
+                entity.OwnsOne(q => q.ScoringRubric, b =>
+                {
+                    b.ToJson();
+                });
+
+                entity.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_InterviewQuestions_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 40");
+                    t.HasCheckConstraint("CK_InterviewQuestions_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
+                });
             });
 
             modelBuilder.Entity<Interview>(entity =>
@@ -218,6 +239,9 @@ namespace EmployeeHRMS.Api.Data
                 entity.Property(a => a.TranscriptSegments).HasColumnType("jsonb");
                 entity.Property(a => a.AiScore).HasPrecision(5, 2);
                 entity.Property(a => a.Status).HasConversion<int>();
+                entity.Property(a => a.Flags)
+                    .HasColumnType("text[]")
+                    .HasDefaultValueSql("'{}'::text[]");
             });
 
             // ============================================================
