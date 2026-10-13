@@ -1,3 +1,5 @@
+using System.Net;
+using EmployeeHRMS.Api.Configuration;
 using EmployeeHRMS.Api.Data;
 using EmployeeHRMS.Api.DTOs;
 using EmployeeHRMS.Api.DTOs.Common;
@@ -5,7 +7,9 @@ using EmployeeHRMS.Api.Exceptions;
 using EmployeeHRMS.Api.Extensions;
 using EmployeeHRMS.Api.Helpers;
 using EmployeeHRMS.Api.Models;
+using EmployeeHRMS.Api.Models.ValueObjects;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace EmployeeHRMS.Api.Services
 {
@@ -19,12 +23,21 @@ namespace EmployeeHRMS.Api.Services
         private readonly AppDbContext _context;
         private readonly EventLogger _eventLogger;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly AudioInterviewOptions _audioInterviewOptions;
+        private readonly IEmailService? _emailService;
 
-        public InterviewService(AppDbContext context, EventLogger eventLogger, IHttpContextAccessor httpContextAccessor)
+        public InterviewService(
+            AppDbContext context,
+            EventLogger eventLogger,
+            IHttpContextAccessor httpContextAccessor,
+            IOptions<AudioInterviewOptions>? audioInterviewOptions = null,
+            IEmailService? emailService = null)
         {
             _context = context;
             _eventLogger = eventLogger;
             _httpContextAccessor = httpContextAccessor;
+            _audioInterviewOptions = audioInterviewOptions?.Value ?? new AudioInterviewOptions();
+            _emailService = emailService;
         }
 
         /// <summary>
@@ -316,6 +329,250 @@ namespace EmployeeHRMS.Api.Services
                 _eventLogger.OnEntityUpdated);
 
             return true;
+        }
+
+        // ============================================================
+        // Candidate Audio Interview (Phase 2)
+        // ============================================================
+
+        public async Task<InterviewInviteResponseDto> CreateInviteAsync(
+            int applicationId,
+            InterviewInviteCreateDto? dto = null,
+            CancellationToken cancellationToken = default)
+        {
+            var application = await _context.Applications
+                .Include(a => a.Candidate)
+                .Include(a => a.JobPosting)
+                    .ThenInclude(j => j.QuestionBankItems)
+                .FirstOrDefaultAsync(a => a.Id == applicationId, cancellationToken)
+                ?? throw new NotFoundException("Application", applicationId);
+
+            var job = application.JobPosting
+                ?? throw new BusinessRuleException("Không tìm thấy thông tin tin tuyển dụng gắn với hồ sơ ứng tuyển này.");
+
+            if (job.Status != JobPostingStatus.Approved && job.Status != JobPostingStatus.Published)
+            {
+                throw new BusinessRuleException($"Chỉ có thể tạo phiên phỏng vấn khi tin tuyển dụng đã được duyệt (Approved hoặc Published). Trạng thái hiện tại: {job.Status}.");
+            }
+
+            var qbItems = job.QuestionBankItems
+                .OrderBy(q => q.OrderIndex)
+                .ToList();
+
+            if (!qbItems.Any())
+            {
+                throw new BusinessRuleException("Tin tuyển dụng chưa có câu hỏi phỏng vấn trong Question Bank. Vui lòng tạo câu hỏi trước khi mời phỏng vấn.");
+            }
+
+            // Chuyển trạng thái Application theo state machine hợp lệ
+            if (application.Status == ApplicationStatus.Applied)
+            {
+                application.TransitionTo(ApplicationStatus.Screening);
+                application.TransitionTo(ApplicationStatus.Interviewing);
+            }
+            else if (application.Status == ApplicationStatus.Screening)
+            {
+                application.TransitionTo(ApplicationStatus.Interviewing);
+            }
+            else if (application.Status != ApplicationStatus.Interviewing)
+            {
+                throw new BusinessRuleException($"Không thể mời phỏng vấn hồ sơ đang ở trạng thái '{application.Status}'.");
+            }
+
+            var validityDays = dto?.ValidityDays ?? _audioInterviewOptions.DefaultInviteExpiryDays;
+            if (validityDays <= 0) validityDays = 3;
+
+            var interview = new Interview
+            {
+                ApplicationId = application.Id
+            };
+            interview.Invite(TimeSpan.FromDays(validityDays));
+
+            // Copy câu hỏi từ QuestionBankItem sang InterviewQuestion: clone từng field của ScoringRubric (không gán reference)
+            foreach (var qb in qbItems)
+            {
+                interview.Questions.Add(new InterviewQuestion
+                {
+                    Question = qb.Question,
+                    OrderIndex = qb.OrderIndex,
+                    ThinkSeconds = qb.ThinkSeconds,
+                    AnswerSeconds = qb.AnswerSeconds,
+                    ScoringRubric = qb.ScoringRubric != null
+                        ? new ScoringRubric
+                        {
+                            Excellent = qb.ScoringRubric.Excellent,
+                            Good = qb.ScoringRubric.Good,
+                            Acceptable = qb.ScoringRubric.Acceptable,
+                            Poor = qb.ScoringRubric.Poor
+                        }
+                        : null
+                });
+            }
+
+            await _context.Interviews.AddAsync(interview, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            var portalBase = _audioInterviewOptions.BaseCandidatePortalUrl.TrimEnd('/');
+            var inviteUrl = $"{portalBase}/{interview.InviteToken}";
+
+            _eventLogger.LogEvent("Interview",
+                $"invited (ApplicationId: {application.Id}, Token: {interview.InviteToken}, ExpiresAt: {interview.InviteExpiresAt:yyyy-MM-dd HH:mm})",
+                _eventLogger.OnEntityCreated);
+
+            // Gửi email mời phỏng vấn (tùy chọn qua MailKit)
+            if (dto?.SendEmail != false && !string.IsNullOrWhiteSpace(application.Candidate?.Email) && _emailService != null)
+            {
+                var candidateName = application.Candidate.FullName;
+                var subject = $"[HRMS] Lời mời tham gia phỏng vấn vị trí {job.Title}";
+                var body = $@"<p>Xin chào <strong>{candidateName}</strong>,</p>
+<p>Bạn đã được mời tham gia vòng phỏng vấn ghi âm sơ loại cho vị trí <strong>{job.Title}</strong>.</p>
+<p>Vui lòng truy cập liên kết dưới đây để bắt đầu bài phỏng vấn:</p>
+<p><a href='{inviteUrl}' style='display:inline-block;padding:10px 20px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;'>Bắt đầu phỏng vấn</a></p>
+<p>Liên kết sẽ hết hạn vào lúc: <strong>{interview.InviteExpiresAt:dd/MM/yyyy HH:mm} (UTC)</strong>.</p>
+<p>Trân trọng,<br/>Phòng Tuyển dụng</p>";
+
+                try
+                {
+                    await _emailService.SendEmailAsync(application.Candidate.Email, subject, body);
+                }
+                catch
+                {
+                    // Email gửi lỗi không chặn luồng chính
+                }
+            }
+
+            return new InterviewInviteResponseDto
+            {
+                InterviewId = interview.Id,
+                ApplicationId = application.Id,
+                InviteToken = interview.InviteToken,
+                InviteUrl = inviteUrl,
+                InviteExpiresAt = interview.InviteExpiresAt!.Value,
+                ScheduledDate = interview.ScheduledDate,
+                TotalQuestions = interview.Questions.Count,
+                Status = interview.Status.ToString(),
+                CandidateName = application.Candidate?.FullName ?? string.Empty,
+                CandidateEmail = application.Candidate?.Email ?? string.Empty,
+                JobTitle = job.Title
+            };
+        }
+
+        public async Task<CandidateInterviewSessionResponseDto> GetCandidateSessionAsync(
+            Guid inviteToken,
+            CancellationToken cancellationToken = default)
+        {
+            var interview = await _context.Interviews
+                .Include(i => i.Application)
+                    .ThenInclude(a => a.Candidate)
+                .Include(i => i.Application)
+                    .ThenInclude(a => a.JobPosting)
+                .Include(i => i.Questions)
+                .Include(i => i.Answers)
+                .FirstOrDefaultAsync(i => i.InviteToken == inviteToken, cancellationToken);
+
+            if (interview == null)
+            {
+                throw new NotFoundException("Không tìm thấy phiên phỏng vấn với liên kết đã cung cấp.");
+            }
+
+            if (interview.Status == InterviewStatus.Cancelled)
+            {
+                throw new BusinessRuleException("Phiên phỏng vấn này đã bị hủy.", HttpStatusCode.BadRequest);
+            }
+
+            // Kiểm tra hết hạn: nếu quá hạn thì cập nhật lazy và trả 410 Gone
+            if (interview.IsInviteExpired(DateTime.UtcNow) || interview.Status == InterviewStatus.Expired)
+            {
+                if (interview.Status != InterviewStatus.Expired)
+                {
+                    interview.MarkExpired();
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                throw new BusinessRuleException("Liên kết phỏng vấn này đã hết hạn.", HttpStatusCode.Gone);
+            }
+
+            // Đã hoàn thành: trả 409 Conflict
+            if (interview.Status == InterviewStatus.Completed)
+            {
+                throw new ConflictException("Phiên phỏng vấn này đã hoàn thành.");
+            }
+
+            var answeredQuestionIds = interview.Answers
+                .Select(a => a.InterviewQuestionId)
+                .ToHashSet();
+
+            // TUYỆT ĐỐI không trả ScoringRubric hay field nội bộ nào khác
+            return new CandidateInterviewSessionResponseDto
+            {
+                InviteToken = interview.InviteToken,
+                JobTitle = interview.Application?.JobPosting?.Title ?? "Phỏng vấn",
+                CandidateName = interview.Application?.Candidate?.FullName ?? "Ứng viên",
+                Status = interview.Status.ToString(),
+                InviteExpiresAt = interview.InviteExpiresAt,
+                ConsentedAt = interview.ConsentedAt,
+                TotalQuestions = interview.Questions.Count,
+                Questions = interview.Questions
+                    .OrderBy(q => q.OrderIndex)
+                    .Select(q => new CandidateQuestionDto
+                    {
+                        Id = q.Id,
+                        Question = q.Question,
+                        OrderIndex = q.OrderIndex,
+                        ThinkSeconds = q.ThinkSeconds ?? _audioInterviewOptions.DefaultThinkSeconds,
+                        AnswerSeconds = q.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds,
+                        HasAnswer = answeredQuestionIds.Contains(q.Id)
+                    })
+                    .ToList()
+            };
+        }
+
+        public async Task<CandidateInterviewStartResponseDto> StartCandidateInterviewAsync(
+            Guid inviteToken,
+            CancellationToken cancellationToken = default)
+        {
+            var interview = await _context.Interviews
+                .FirstOrDefaultAsync(i => i.InviteToken == inviteToken, cancellationToken);
+
+            if (interview == null)
+            {
+                throw new NotFoundException("Không tìm thấy phiên phỏng vấn với liên kết đã cung cấp.");
+            }
+
+            if (interview.Status == InterviewStatus.Cancelled)
+            {
+                throw new BusinessRuleException("Phiên phỏng vấn này đã bị hủy.", HttpStatusCode.BadRequest);
+            }
+
+            if (interview.IsInviteExpired(DateTime.UtcNow) || interview.Status == InterviewStatus.Expired)
+            {
+                if (interview.Status != InterviewStatus.Expired)
+                {
+                    interview.MarkExpired();
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                throw new BusinessRuleException("Liên kết phỏng vấn này đã hết hạn.", HttpStatusCode.Gone);
+            }
+
+            if (interview.Status == InterviewStatus.Completed)
+            {
+                throw new ConflictException("Phiên phỏng vấn này đã hoàn thành.");
+            }
+
+            // Idempotent: gọi lại khi đã InProgress sẽ giữ nguyên ConsentedAt
+            interview.MarkInProgress();
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _eventLogger.LogEvent("Interview",
+                $"started (InterviewId: {interview.Id}, Token: {interview.InviteToken}, ConsentedAt: {interview.ConsentedAt:yyyy-MM-dd HH:mm})",
+                _eventLogger.OnEntityUpdated);
+
+            return new CandidateInterviewStartResponseDto
+            {
+                InviteToken = interview.InviteToken,
+                Status = interview.Status.ToString(),
+                ConsentedAt = interview.ConsentedAt,
+                Message = "Bắt đầu phiên phỏng vấn thành công."
+            };
         }
     }
 }

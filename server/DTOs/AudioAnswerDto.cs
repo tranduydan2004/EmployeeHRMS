@@ -12,10 +12,10 @@ namespace EmployeeHRMS.Api.DTOs
         public IFormFile AudioFile { get; set; } = null!;
 
         /// <summary>
-        /// Thời lượng ghi âm tính bằng giây (do client gửi kèm, tối đa 120 giây).
+        /// Thời lượng ghi âm tính bằng giây (do client gửi kèm, tối đa 125 giây gồm trần 120s + 5s buffer).
         /// </summary>
         [Required(ErrorMessage = "Audio duration is required.")]
-        [Range(1, 120, ErrorMessage = "Duration must be between 1 and 120 seconds.")]
+        [Range(1, 125, ErrorMessage = "Duration must be between 1 and 125 seconds.")]
         public int DurationSeconds { get; set; }
 
         // ============================================================
@@ -26,6 +26,12 @@ namespace EmployeeHRMS.Api.DTOs
 
         [Range(0, double.MaxValue)]
         public double OutOfFocusDurationSeconds { get; set; }
+
+        /// <summary>
+        /// Danh sách flag bất thường do client phát hiện (ví dụ: "MicDisconnected").
+        /// Server sẽ validate theo whitelist.
+        /// </summary>
+        public List<string>? Flags { get; set; }
     }
 
     // === DTO trả về sau khi upload audio thành công hoặc query status ===

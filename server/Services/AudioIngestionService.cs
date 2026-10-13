@@ -3,12 +3,14 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using EmployeeHRMS.Api.Configuration;
 using EmployeeHRMS.Api.Data;
 using EmployeeHRMS.Api.DTOs;
 using EmployeeHRMS.Api.Exceptions;
 using EmployeeHRMS.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace EmployeeHRMS.Api.Services
 {
@@ -30,22 +32,25 @@ namespace EmployeeHRMS.Api.Services
         private readonly IFileValidatorService _fileValidatorService;
         private readonly IAudioTranscriptionQueue _transcriptionQueue;
         private readonly ILogger<AudioIngestionService> _logger;
+        private readonly AudioInterviewOptions _audioInterviewOptions;
 
         public AudioIngestionService(
             AppDbContext context,
             IAudioStorageService audioStorageService,
             IFileValidatorService fileValidatorService,
             IAudioTranscriptionQueue transcriptionQueue,
-            ILogger<AudioIngestionService> logger)
+            ILogger<AudioIngestionService> logger,
+            IOptions<AudioInterviewOptions>? audioInterviewOptions = null)
         {
             _context = context;
             _audioStorageService = audioStorageService;
             _fileValidatorService = fileValidatorService;
             _transcriptionQueue = transcriptionQueue;
             _logger = logger;
+            _audioInterviewOptions = audioInterviewOptions?.Value ?? new AudioInterviewOptions();
         }
 
-        public async Task<AudioAnswerResponseDto> ProcessAudioUploadAsync(
+        public async Task<(AudioAnswerResponseDto Response, bool IsCreated)> ProcessAudioUploadAsync(
             Guid inviteToken,
             int questionId,
             AudioAnswerUploadDto dto,
@@ -71,7 +76,17 @@ namespace EmployeeHRMS.Api.Services
                 throw new NotFoundException("Không tìm thấy buổi phỏng vấn với liên kết đã cung cấp.");
             }
 
-            // 4. Kiểm tra trạng thái buổi phỏng vấn
+            // 4. Kiểm tra trạng thái buổi phỏng vấn & thời hạn
+            if (interview.IsInviteExpired(DateTime.UtcNow) || interview.Status == InterviewStatus.Expired)
+            {
+                if (interview.Status != InterviewStatus.Expired)
+                {
+                    interview.MarkExpired();
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                throw new BusinessRuleException("Liên kết phỏng vấn này đã hết hạn.", System.Net.HttpStatusCode.Gone);
+            }
+
             if (interview.Status == InterviewStatus.Cancelled)
             {
                 throw new BusinessRuleException("Buổi phỏng vấn này đã bị hủy.");
@@ -79,7 +94,7 @@ namespace EmployeeHRMS.Api.Services
 
             if (interview.Status == InterviewStatus.Completed)
             {
-                throw new BusinessRuleException("Buổi phỏng vấn này đã hoàn tất, không thể nộp thêm câu trả lời.");
+                throw new ConflictException("Buổi phỏng vấn này đã hoàn tất, không thể nộp thêm câu trả lời.");
             }
 
             // 5. Kiểm tra câu hỏi có thuộc interview này không
@@ -91,14 +106,30 @@ namespace EmployeeHRMS.Api.Services
                 throw new NotFoundException($"Câu hỏi #{questionId} không tồn tại trong buổi phỏng vấn này.");
             }
 
-            // 6. Kiểm tra xem câu hỏi này đã có câu trả lời chưa (mỗi câu chỉ được nộp 1 lần)
-            var existingAnswer = await _context.InterviewAnswers
-                .AnyAsync(a => a.InterviewQuestionId == questionId, cancellationToken);
+            // 5b. Validate thời lượng câu trả lời theo đúng Question.AnswerSeconds + buffer dung sai (mặc định 5s)
+            var allowedAnswerSeconds = question.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds;
+            var maxAllowedSeconds = allowedAnswerSeconds + _audioInterviewOptions.DurationBufferSeconds;
 
-            if (existingAnswer)
+            if (dto.DurationSeconds > maxAllowedSeconds)
             {
-                _logger.LogWarning("Audio ingestion rejected: Question #{QuestionId} already has an answer", questionId);
-                throw new ConflictException("Câu hỏi này đã có câu trả lời được ghi nhận.");
+                _logger.LogWarning(
+                    "Audio ingestion rejected: Duration {Duration}s exceeds limit {Allowed}s (+{Buffer}s buffer) for Question #{QuestionId}",
+                    dto.DurationSeconds, allowedAnswerSeconds, _audioInterviewOptions.DurationBufferSeconds, questionId);
+
+                throw new BusinessRuleException(
+                    $"Thời lượng câu trả lời ({dto.DurationSeconds} giây) vượt quá giới hạn cho phép của câu hỏi này ({allowedAnswerSeconds} giây + {_audioInterviewOptions.DurationBufferSeconds} giây dung sai).");
+            }
+
+            // 6. Kiểm tra xem câu hỏi này đã có câu trả lời chưa — Idempotent (A5): trả 200 OK kèm answer hiện tại
+            var existingAnswer = await _context.InterviewAnswers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.InterviewQuestionId == questionId, cancellationToken);
+
+            if (existingAnswer != null)
+            {
+                _logger.LogInformation("Audio ingestion duplicate hit: Question #{QuestionId} already has an answer #{AnswerId}. Returning existing answer idempotently.",
+                    questionId, existingAnswer.Id);
+                return (MapToResponseDto(existingAnswer), false);
             }
 
             // 7. Lưu trữ audio vào IAudioStorageService
@@ -114,7 +145,15 @@ namespace EmployeeHRMS.Api.Services
                     cancellationToken);
             }
 
-            // 8. Tạo bản ghi InterviewAnswer (Status = Pending) & Compensating transaction nếu DB / Queue fail
+            // 8. Whitelist & lọc Flags do client khai báo (A4)
+            var safeFlags = dto.Flags?
+                .Where(f => !string.IsNullOrWhiteSpace(f) && string.Equals(f.Trim(), "MicDisconnected", StringComparison.OrdinalIgnoreCase))
+                .Select(f => "MicDisconnected")
+                .Distinct()
+                .Take(5)
+                .ToList() ?? new List<string>();
+
+            // 9. Tạo bản ghi InterviewAnswer (Status = Pending) & Compensating transaction nếu DB / Queue fail
             InterviewAnswer answer;
             try
             {
@@ -130,6 +169,7 @@ namespace EmployeeHRMS.Api.Services
                     AudioFileSize = dto.AudioFile.Length,
                     TabSwitchCount = dto.TabSwitchCount,
                     OutOfFocusDurationSeconds = dto.OutOfFocusDurationSeconds,
+                    Flags = safeFlags,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
@@ -137,7 +177,7 @@ namespace EmployeeHRMS.Api.Services
                 _context.InterviewAnswers.Add(answer);
                 await _context.SaveChangesAsync(cancellationToken);
 
-                // 9. Enqueue job vào Channel queue (Producer)
+                // 10. Enqueue job vào Channel queue (Producer)
                 var job = new AudioTranscriptionJob
                 {
                     InterviewAnswerId = answer.Id,
@@ -150,6 +190,32 @@ namespace EmployeeHRMS.Api.Services
                     "Audio ingestion succeeded: Answer #{AnswerId} created for Interview #{InterviewId}, Question #{QuestionId}. Enqueued to channel.",
                     answer.Id, interview.Id, questionId);
             }
+            catch (DbUpdateException dbEx)
+            {
+                // Bắt race condition giữa hai request retry đồng thời đụng unique constraint InterviewQuestionId
+                _logger.LogWarning(dbEx, "DbUpdateException on Question #{QuestionId}. Checking for concurrent duplicate answer.", questionId);
+                var concurrentAnswer = await _context.InterviewAnswers
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.InterviewQuestionId == questionId, cancellationToken);
+
+                if (concurrentAnswer != null)
+                {
+                    try
+                    {
+                        await _audioStorageService.DeleteAudioAsync(storageKey, CancellationToken.None);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogError(cleanupEx, "Failed to clean up duplicate audio file: {StorageKey}", storageKey);
+                    }
+
+                    return (MapToResponseDto(concurrentAnswer), false);
+                }
+
+                // Nếu là lỗi DB khác: xóa file audio đã lưu và rethrow
+                await TryCompensatingDeleteAsync(storageKey);
+                throw;
+            }
             catch (Exception ex)
             {
                 // Compensating action: Xóa file audio đã lưu nếu DB save hoặc Enqueue thất bại
@@ -157,19 +223,28 @@ namespace EmployeeHRMS.Api.Services
                     "Failed to save InterviewAnswer or enqueue job for Question #{QuestionId}. Compensating by deleting audio file {StorageKey}",
                     questionId, storageKey);
 
-                try
-                {
-                    await _audioStorageService.DeleteAudioAsync(storageKey, CancellationToken.None);
-                }
-                catch (Exception cleanupEx)
-                {
-                    _logger.LogError(cleanupEx, "Failed to clean up audio file during compensating transaction: {StorageKey}", storageKey);
-                }
-
+                await TryCompensatingDeleteAsync(storageKey);
                 throw;
             }
 
-            // 10. Trả về DTO
+            // 11. Trả về DTO kèm cờ isCreated = true (HTTP 201)
+            return (MapToResponseDto(answer), true);
+        }
+
+        private async Task TryCompensatingDeleteAsync(string storageKey)
+        {
+            try
+            {
+                await _audioStorageService.DeleteAudioAsync(storageKey, CancellationToken.None);
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogError(cleanupEx, "Failed to clean up audio file during compensating transaction: {StorageKey}", storageKey);
+            }
+        }
+
+        private static AudioAnswerResponseDto MapToResponseDto(InterviewAnswer answer)
+        {
             return new AudioAnswerResponseDto
             {
                 Id = answer.Id,

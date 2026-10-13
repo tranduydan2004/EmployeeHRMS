@@ -180,6 +180,14 @@ namespace EmployeeHRMS.Api
                     opt.QueueLimit = 0;
                 });
 
+                // CandidatePortalRateLimit — 60 requests/phút/IP (Candidate audio interview portal)
+                options.AddFixedWindowLimiter("CandidatePortalRateLimit", opt =>
+                {
+                    opt.PermitLimit = 60;
+                    opt.Window = TimeSpan.FromMinutes(1);
+                    opt.QueueLimit = 0;
+                });
+
                 options.OnRejected = async (context, token) =>
                 {
                     context.HttpContext.Response.StatusCode = 429;
@@ -259,6 +267,8 @@ namespace EmployeeHRMS.Api
             // OpenAI — LLM services for Smart JD & Question Bank Generation
             builder.Services.Configure<EmployeeHRMS.Api.Configuration.OpenAiSettings>(
                 builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.OpenAiSettings.SectionName));
+            builder.Services.Configure<EmployeeHRMS.Api.Configuration.AudioInterviewOptions>(
+                builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.AudioInterviewOptions.SectionName));
             builder.Services.AddSingleton(sp =>
             {
                 var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmployeeHRMS.Api.Configuration.OpenAiSettings>>().Value;
