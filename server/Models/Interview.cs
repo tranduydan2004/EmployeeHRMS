@@ -1,3 +1,5 @@
+using EmployeeHRMS.Api.Exceptions;
+
 namespace EmployeeHRMS.Api.Models
 {
 
@@ -5,7 +7,10 @@ namespace EmployeeHRMS.Api.Models
     {
         Scheduled = 1,
         Completed = 2,
-        Cancelled = 3
+        Cancelled = 3,
+        // Audio interview (Phase 2) — giá trị nối tiếp, không đổi giá trị cũ vì cột lưu dạng int
+        InProgress = 4,
+        Expired = 5
     }
 
     /// <summary>
@@ -26,6 +31,12 @@ namespace EmployeeHRMS.Api.Models
 
         // Token bảo mật dùng cho candidate truy cập buổi phỏng vấn audio (chống IDOR)
         public Guid InviteToken { get; set; } = Guid.NewGuid();
+
+        // Audio interview: hạn dùng link mời (null = phỏng vấn trực tiếp, không qua link)
+        public DateTime? InviteExpiresAt { get; private set; }
+
+        // Thời điểm ứng viên đồng ý ghi âm và bắt đầu phiên (set một lần duy nhất)
+        public DateTime? ConsentedAt { get; private set; }
 
         // DDD: private set — chỉ thay đổi qua domain methods
         public InterviewStatus Status { get; private set; }
@@ -58,6 +69,68 @@ namespace EmployeeHRMS.Api.Models
         public void Cancel()
         {
             Status = InterviewStatus.Cancelled;
+        }
+
+        // ============================================================
+        // Domain Methods — Audio Interview qua link mời (Phase 2)
+        // ============================================================
+
+        /// <summary>
+        /// Phát link mời phỏng vấn audio có thời hạn.
+        /// ScheduledDate được dùng với nghĩa "ngày mời" để giữ tương thích ngược với luồng HR hiện có.
+        /// </summary>
+        public void Invite(TimeSpan validFor)
+        {
+            if (validFor <= TimeSpan.Zero)
+                throw new BusinessRuleException("Invite validity must be a positive duration.");
+
+            // Status mặc định (0) = entity mới tạo, chưa qua Schedule()
+            if (Status != default && Status != InterviewStatus.Scheduled)
+                throw new BusinessRuleException($"Cannot invite an interview in '{Status}' state.");
+
+            var now = DateTime.UtcNow;
+            Status = InterviewStatus.Scheduled;
+            ScheduledDate = now;
+            InviteExpiresAt = now.Add(validFor);
+        }
+
+        /// <summary>
+        /// Ứng viên đồng ý ghi âm và bắt đầu phiên. Idempotent: gọi lại khi đã InProgress không đổi gì,
+        /// ConsentedAt giữ nguyên mốc của lần đầu.
+        /// </summary>
+        public void MarkInProgress()
+        {
+            if (Status == InterviewStatus.InProgress)
+                return;
+
+            if (Status != InterviewStatus.Scheduled)
+                throw new BusinessRuleException($"Cannot start an interview in '{Status}' state.");
+
+            if (IsInviteExpired(DateTime.UtcNow))
+                throw new BusinessRuleException("The interview invitation has expired.");
+
+            Status = InterviewStatus.InProgress;
+            ConsentedAt ??= DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Đánh dấu link mời đã hết hạn (gọi lazy khi phát hiện quá hạn lúc truy cập). Idempotent.
+        /// </summary>
+        public void MarkExpired()
+        {
+            if (Status == InterviewStatus.Expired)
+                return;
+
+            if (Status != InterviewStatus.Scheduled && Status != InterviewStatus.InProgress)
+                throw new BusinessRuleException($"Cannot expire an interview in '{Status}' state.");
+
+            Status = InterviewStatus.Expired;
+        }
+
+        /// <summary>Kiểm tra link mời đã quá hạn tại thời điểm utcNow (không đổi state).</summary>
+        public bool IsInviteExpired(DateTime utcNow)
+        {
+            return InviteExpiresAt.HasValue && utcNow >= InviteExpiresAt.Value;
         }
 
         /// <summary>

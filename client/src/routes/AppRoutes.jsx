@@ -20,6 +20,7 @@ import { JobPostingList, JobPostingDetail } from '../features/recruitment/jobs';
 import { CandidateTable } from '../features/recruitment/candidates';
 import { ApplicationTable, MyApplicationsList } from '../features/recruitment/applications';
 import { InterviewList } from '../features/interviews';
+import { CandidateInterviewPage } from '../features/candidatePortal';
 
 function HomeRedirect() {
   const { role, isAuthenticated } = useAuthStore();
@@ -54,6 +55,9 @@ export default function AppRoutes() {
         <Route path="/forgot-password" element={<GuestOnly><ForgotPasswordForm /></GuestOnly>} />
         <Route path="/reset-password" element={<GuestOnly><ResetPasswordForm /></GuestOnly>} />
       </Route>
+
+      {/* Public Candidate Audio Interview Portal */}
+      <Route path="/interview/:token" element={<CandidateInterviewPage />} />
 
       {/* Main Layout Routes */}
       <Route element={<MainLayout />}>

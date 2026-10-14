@@ -25,17 +25,20 @@ namespace EmployeeHRMS.Api.Controllers
         private readonly ICandidateService _candidateService;
         private readonly IAuthorizationService _authorizationService;
         private readonly INotificationService _notificationService;
+        private readonly IInterviewService _interviewService;
 
         public ApplicationsController(
             IApplicationService applicationService,
             ICandidateService candidateService,
             IAuthorizationService authorizationService,
-            INotificationService notificationService)
+            INotificationService notificationService,
+            IInterviewService interviewService)
         {
             _applicationService = applicationService;
             _candidateService = candidateService;
             _authorizationService = authorizationService;
             _notificationService = notificationService;
+            _interviewService = interviewService;
         }
 
         // GET: api/applications — Lọc tự động theo Role trong Service
@@ -161,6 +164,18 @@ namespace EmployeeHRMS.Api.Controllers
 
             await _applicationService.DeleteAsync(id);
             return NoContent();
+        }
+
+        // POST: api/applications/{id}/interview-invite — Admin/HR tạo lời mời phỏng vấn audio sơ loại
+        [HttpPost("{id}/interview-invite")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> CreateInterviewInvite(
+            int id,
+            [FromBody] InterviewInviteCreateDto? dto,
+            CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.CreateInviteAsync(id, dto ?? new InterviewInviteCreateDto(), cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, result);
         }
     }
 }

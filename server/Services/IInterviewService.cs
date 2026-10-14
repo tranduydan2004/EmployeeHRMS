@@ -25,5 +25,27 @@ namespace EmployeeHRMS.Api.Services
 
         /// <summary>Cập nhật câu trả lời của ứng viên cho câu hỏi phỏng vấn.</summary>
         Task<bool> UpdateQuestionAnswerAsync(InterviewQuestion question, string candidateAnswer);
+
+        // ============================================================
+        // Candidate Audio Interview (Phase 2)
+        // ============================================================
+
+        /// <summary>
+        /// Tạo phiên phỏng vấn audio và link mời cho Application (HR).
+        /// Copy câu hỏi từ QuestionBankItem của JobPosting (chỉ khi JD đã Approved/Published).
+        /// Chuyển trạng thái Application sang Interviewing.
+        /// </summary>
+        Task<InterviewInviteResponseDto> CreateInviteAsync(int applicationId, InterviewInviteCreateDto? dto = null, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy thông tin phiên phỏng vấn và danh sách câu hỏi cho ứng viên (công khai qua inviteToken).
+        /// TUYỆT ĐỐI không trả ScoringRubric hay dữ liệu nội bộ.
+        /// </summary>
+        Task<CandidateInterviewSessionResponseDto> GetCandidateSessionAsync(Guid inviteToken, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ứng viên xác nhận bắt đầu phỏng vấn và đồng ý ghi âm (idempotent).
+        /// </summary>
+        Task<CandidateInterviewStartResponseDto> StartCandidateInterviewAsync(Guid inviteToken, CancellationToken cancellationToken = default);
     }
 }

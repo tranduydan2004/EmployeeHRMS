@@ -18,7 +18,7 @@ namespace EmployeeHRMS.Api.Services
         /// 5. Tạo InterviewAnswer record (Status = Pending)
         /// 6. Đẩy AudioTranscriptionJob vào Channel queue
         /// </summary>
-        Task<AudioAnswerResponseDto> ProcessAudioUploadAsync(
+        Task<(AudioAnswerResponseDto Response, bool IsCreated)> ProcessAudioUploadAsync(
             Guid inviteToken,
             int questionId,
             AudioAnswerUploadDto dto,

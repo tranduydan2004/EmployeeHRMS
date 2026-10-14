@@ -7,6 +7,7 @@ using EmployeeHRMS.Api.Models;
 using EmployeeHRMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace EmployeeHRMS.Api.Controllers
 {
@@ -239,6 +240,37 @@ namespace EmployeeHRMS.Api.Controllers
         }
 
         // ============================================================
+        // Candidate Audio Interview Portal Endpoints (Phase 2)
+        // ============================================================
+
+        /// <summary>
+        /// GET: api/interviews/{inviteToken}
+        /// Lấy thông tin phiên phỏng vấn và danh sách câu hỏi cho ứng viên (công khai).
+        /// Tuyệt đối không để lộ scoring rubrics hay thông tin nội bộ.
+        /// </summary>
+        [HttpGet("{inviteToken:guid}")]
+        [AllowAnonymous]
+        [EnableRateLimiting("CandidatePortalRateLimit")]
+        public async Task<IActionResult> GetCandidateSession(Guid inviteToken, CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.GetCandidateSessionAsync(inviteToken, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// POST: api/interviews/{inviteToken}/start
+        /// Ứng viên xác nhận bắt đầu phỏng vấn và đồng ý ghi âm (idempotent).
+        /// </summary>
+        [HttpPost("{inviteToken:guid}/start")]
+        [AllowAnonymous]
+        [EnableRateLimiting("CandidatePortalRateLimit")]
+        public async Task<IActionResult> StartCandidateInterview(Guid inviteToken, CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.StartCandidateInterviewAsync(inviteToken, cancellationToken);
+            return Ok(result);
+        }
+
+        // ============================================================
         // Audio Interview Ingestion & Status Polling (Phase 3)
         // ============================================================
 
@@ -247,9 +279,11 @@ namespace EmployeeHRMS.Api.Controllers
         /// Ứng viên nộp file ghi âm trả lời (multipart/form-data) kèm telemetry chống gian lận.
         /// Public access với InviteToken bảo mật (chống IDOR).
         /// Tiếp nhận audio, validate 4 lớp, lưu storage, lưu DB (Pending), và enqueue vào Channel queue.
+        /// Trả về 201 Created lần đầu, hoặc 200 OK idempotent nếu câu trả lời đã tồn tại.
         /// </summary>
         [HttpPost("{inviteToken:guid}/answers/{questionId:int}")]
         [AllowAnonymous]
+        [EnableRateLimiting("CandidatePortalRateLimit")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> SubmitAnswerAudio(
             Guid inviteToken,
@@ -257,16 +291,21 @@ namespace EmployeeHRMS.Api.Controllers
             [FromForm] AudioAnswerUploadDto dto,
             CancellationToken cancellationToken)
         {
-            var result = await _audioIngestionService.ProcessAudioUploadAsync(
+            var (result, isCreated) = await _audioIngestionService.ProcessAudioUploadAsync(
                 inviteToken,
                 questionId,
                 dto,
                 cancellationToken);
 
-            return CreatedAtAction(
-                nameof(GetAnswerStatus),
-                new { inviteToken, questionId },
-                result);
+            if (isCreated)
+            {
+                return CreatedAtAction(
+                    nameof(GetAnswerStatus),
+                    new { inviteToken, questionId },
+                    result);
+            }
+
+            return Ok(result);
         }
 
         /// <summary>
@@ -275,6 +314,7 @@ namespace EmployeeHRMS.Api.Controllers
         /// </summary>
         [HttpGet("{inviteToken:guid}/answers/{questionId:int}")]
         [AllowAnonymous]
+        [EnableRateLimiting("CandidatePortalRateLimit")]
         public async Task<IActionResult> GetAnswerStatus(
             Guid inviteToken,
             int questionId,

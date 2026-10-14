@@ -113,9 +113,10 @@ namespace EmployeeHRMS.Tests.Services
                 .ReturnsAsync(generatedStorageKey);
 
             // Act
-            var result = await _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+            var (result, isCreated) = await _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
 
             // Assert
+            isCreated.Should().BeTrue();
             result.Should().NotBeNull();
             result.InterviewQuestionId.Should().Be(_validQuestionId);
             result.AudioStorageKey.Should().Be(generatedStorageKey);
@@ -173,7 +174,7 @@ namespace EmployeeHRMS.Tests.Services
         }
 
         [Fact]
-        public async Task ProcessAudioUploadAsync_WhenInterviewCompleted_ShouldThrowBusinessRuleException()
+        public async Task ProcessAudioUploadAsync_WhenInterviewCompleted_ShouldThrowConflictException()
         {
             // Arrange
             var interview = await _context.Interviews.FindAsync(_validInterviewId);
@@ -187,7 +188,7 @@ namespace EmployeeHRMS.Tests.Services
             var act = () => _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
 
             // Assert
-            await act.Should().ThrowAsync<BusinessRuleException>()
+            await act.Should().ThrowAsync<ConflictException>()
                 .WithMessage("*đã hoàn tất*");
         }
 
@@ -208,16 +209,41 @@ namespace EmployeeHRMS.Tests.Services
         }
 
         [Fact]
-        public async Task ProcessAudioUploadAsync_WhenAnswerAlreadyExists_ShouldThrowConflictException()
+        public async Task ProcessAudioUploadAsync_WhenAnswerAlreadyExists_ShouldReturnExistingAnswerIdempotently()
         {
             // Arrange
-            _context.InterviewAnswers.Add(new InterviewAnswer
+            var existing = new InterviewAnswer
             {
                 InterviewId = _validInterviewId,
                 InterviewQuestionId = _validQuestionId,
                 AudioStorageKey = "audio/key.webm",
-                AudioMimeType = "audio/webm"
-            });
+                AudioMimeType = "audio/webm",
+                AudioDurationSeconds = 30
+            };
+            _context.InterviewAnswers.Add(existing);
+            await _context.SaveChangesAsync();
+
+            var mockFile = CreateMockAudioFormFile("test.webm", "audio/webm", new byte[] { 1, 2, 3 });
+            var dto = new AudioAnswerUploadDto { AudioFile = mockFile, DurationSeconds = 30 };
+
+            // Act
+            var (result, isCreated) = await _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+
+            // Assert
+            isCreated.Should().BeFalse();
+            result.Should().NotBeNull();
+            result.InterviewQuestionId.Should().Be(_validQuestionId);
+            result.AudioStorageKey.Should().Be("audio/key.webm");
+            _storageMock.Verify(s => s.SaveAudioAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            _queueMock.Verify(q => q.EnqueueAsync(It.IsAny<AudioTranscriptionJob>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WhenInterviewExpired_ShouldThrowGoneBusinessRuleException()
+        {
+            // Arrange
+            var interview = await _context.Interviews.FindAsync(_validInterviewId);
+            interview!.MarkExpired();
             await _context.SaveChangesAsync();
 
             var mockFile = CreateMockAudioFormFile("test.webm", "audio/webm", new byte[] { 1, 2, 3 });
@@ -227,8 +253,36 @@ namespace EmployeeHRMS.Tests.Services
             var act = () => _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
 
             // Assert
-            await act.Should().ThrowAsync<ConflictException>()
-                .WithMessage("*đã có câu trả lời*");
+            var ex = await act.Should().ThrowAsync<BusinessRuleException>();
+            ex.Which.StatusCode.Should().Be(System.Net.HttpStatusCode.Gone);
+        }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WithFlags_ShouldWhitelistMicDisconnectedOnly()
+        {
+            // Arrange
+            var mockFile = CreateMockAudioFormFile("test.webm", "audio/webm", new byte[] { 1, 2, 3 });
+            var dto = new AudioAnswerUploadDto
+            {
+                AudioFile = mockFile,
+                DurationSeconds = 30,
+                Flags = new List<string> { "MicDisconnected", "TabSwitched", "CheatingDetected", "micdisconnected", "InvalidFlag" }
+            };
+
+            var generatedStorageKey = $"audio/interviews/{_validInterviewId}/{_validQuestionId}_flags.webm";
+            _storageMock.Setup(s => s.GenerateStorageKey(_validInterviewId, _validQuestionId, ".webm"))
+                .Returns(generatedStorageKey);
+            _storageMock.Setup(s => s.SaveAudioAsync(It.IsAny<Stream>(), generatedStorageKey, "audio/webm", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(generatedStorageKey);
+
+            // Act
+            var (result, isCreated) = await _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+
+            // Assert
+            isCreated.Should().BeTrue();
+            var dbAnswer = await _context.InterviewAnswers.FirstOrDefaultAsync(a => a.InterviewQuestionId == _validQuestionId);
+            dbAnswer.Should().NotBeNull();
+            dbAnswer!.Flags.Should().ContainSingle().Which.Should().Be("MicDisconnected");
         }
 
         [Fact]
@@ -294,6 +348,84 @@ namespace EmployeeHRMS.Tests.Services
             // Assert
             await act.Should().ThrowAsync<NotFoundException>()
                 .WithMessage("*Chưa có câu trả lời*");
+        }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WhenDurationExceedsQuestionLimitPlusBuffer_ShouldThrowBusinessRuleException()
+        {
+            // Arrange: Câu hỏi có AnswerSeconds = 60, buffer = 5s => tối đa 65s
+            var question = await _context.InterviewQuestions.FindAsync(_validQuestionId);
+            question!.AnswerSeconds = 60;
+            await _context.SaveChangesAsync();
+
+            var audioBytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x02 };
+            var mockFile = CreateMockAudioFormFile("answer.webm", "audio/webm", audioBytes);
+            var dto = new AudioAnswerUploadDto
+            {
+                AudioFile = mockFile,
+                DurationSeconds = 66 // Vượt quá 60 + 5 = 65s
+            };
+
+            // Act
+            var act = () => _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*vượt quá giới hạn cho phép*");
+        }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WhenDurationWithinQuestionLimitPlusBuffer_ShouldSucceed()
+        {
+            // Arrange: Câu hỏi có AnswerSeconds = 60, buffer = 5s => 65s vẫn hợp lệ
+            var question = await _context.InterviewQuestions.FindAsync(_validQuestionId);
+            question!.AnswerSeconds = 60;
+            await _context.SaveChangesAsync();
+
+            var audioBytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x02 };
+            var mockFile = CreateMockAudioFormFile("answer.webm", "audio/webm", audioBytes);
+            var dto = new AudioAnswerUploadDto
+            {
+                AudioFile = mockFile,
+                DurationSeconds = 65 // Đúng ngưỡng 60 + 5 = 65s
+            };
+
+            var storageKey = "audio/interviews/10/20_test.webm";
+            _storageMock.Setup(s => s.GenerateStorageKey(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>()))
+                .Returns(storageKey);
+            _storageMock.Setup(s => s.SaveAudioAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(storageKey);
+
+            // Act
+            var (response, isCreated) = await _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+
+            // Assert
+            isCreated.Should().BeTrue();
+            response.AudioDurationSeconds.Should().Be(65);
+        }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WhenQuestionAnswerSecondsIsNull_UsesDefaultAnswerSecondsPlusBuffer()
+        {
+            // Arrange: Câu hỏi có AnswerSeconds = null => fallback default 90s + 5s buffer = 95s
+            var question = await _context.InterviewQuestions.FindAsync(_validQuestionId);
+            question!.AnswerSeconds = null;
+            await _context.SaveChangesAsync();
+
+            var audioBytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x02 };
+            var mockFile = CreateMockAudioFormFile("answer.webm", "audio/webm", audioBytes);
+            var dto = new AudioAnswerUploadDto
+            {
+                AudioFile = mockFile,
+                DurationSeconds = 100 // Vượt quá default 90 + 5 = 95s
+            };
+
+            // Act
+            var act = () => _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*vượt quá giới hạn cho phép*");
         }
     }
 }
