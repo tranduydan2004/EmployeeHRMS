@@ -20,8 +20,8 @@ namespace EmployeeHRMS.Api.Models
         // Snapshot từ QuestionBankItem lúc phát link mời (null với câu hỏi HR thêm thủ công).
         // ScoringRubric phải là instance mới — EF Core không cho 2 owner dùng chung 1 owned instance.
         public ScoringRubric? ScoringRubric { get; set; }
-        public int? ThinkSeconds { get; set; }
-        public int? AnswerSeconds { get; set; }
+        public int ThinkSeconds { get; set; } = 20;
+        public int AnswerSeconds { get; set; } = 90;
         
         // 1-to-1: Mỗi câu hỏi chỉ có tối đa 1 audio response
         public InterviewAnswer? Answer { get; set; }

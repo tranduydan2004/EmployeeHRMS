@@ -370,8 +370,10 @@ namespace EmployeeHRMS.Api.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
-                    b.Property<int?>("AnswerSeconds")
-                        .HasColumnType("integer");
+                    b.Property<int>("AnswerSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(90);
 
                     b.Property<string>("CandidateAnswer")
                         .HasColumnType("text");
@@ -386,8 +388,10 @@ namespace EmployeeHRMS.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int?>("ThinkSeconds")
-                        .HasColumnType("integer");
+                    b.Property<int>("ThinkSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(20);
 
                     b.HasKey("Id");
 
@@ -395,9 +399,9 @@ namespace EmployeeHRMS.Api.Migrations
 
                     b.ToTable("InterviewQuestions", t =>
                         {
-                            t.HasCheckConstraint("CK_InterviewQuestions_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
+                            t.HasCheckConstraint("CK_InterviewQuestions_AnswerSeconds", "\"AnswerSeconds\" BETWEEN 10 AND 120");
 
-                            t.HasCheckConstraint("CK_InterviewQuestions_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 300");
+                            t.HasCheckConstraint("CK_InterviewQuestions_ThinkSeconds", "\"ThinkSeconds\" BETWEEN 5 AND 40");
                         });
                 });
 
@@ -567,7 +571,7 @@ namespace EmployeeHRMS.Api.Migrations
                         {
                             t.HasCheckConstraint("CK_QuestionBankItems_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
 
-                            t.HasCheckConstraint("CK_QuestionBankItems_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 300");
+                            t.HasCheckConstraint("CK_QuestionBankItems_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 40");
                         });
                 });
 

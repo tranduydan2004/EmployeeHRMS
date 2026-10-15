@@ -74,7 +74,9 @@ namespace EmployeeHRMS.Tests.Services
                 Id = _validQuestionId,
                 InterviewId = _validInterviewId,
                 Question = "Tell us about a time you designed a distributed queue.",
-                OrderIndex = 1
+                OrderIndex = 1,
+                ThinkSeconds = 20,
+                AnswerSeconds = 90
             };
 
             _context.Interviews.Add(interview);
@@ -405,11 +407,11 @@ namespace EmployeeHRMS.Tests.Services
         }
 
         [Fact]
-        public async Task ProcessAudioUploadAsync_WhenQuestionAnswerSecondsIsNull_UsesDefaultAnswerSecondsPlusBuffer()
+        public async Task ProcessAudioUploadAsync_WhenQuestionUsesDefaultAnswerSeconds_EnforcesDefaultPlusBuffer()
         {
-            // Arrange: Câu hỏi có AnswerSeconds = null => fallback default 90s + 5s buffer = 95s
+            // Arrange: Câu hỏi có AnswerSeconds = 90 (mặc định) => tối đa 90 + 5 = 95s
             var question = await _context.InterviewQuestions.FindAsync(_validQuestionId);
-            question!.AnswerSeconds = null;
+            question!.AnswerSeconds = 90;
             await _context.SaveChangesAsync();
 
             var audioBytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x02 };
