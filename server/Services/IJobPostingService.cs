@@ -23,5 +23,6 @@ namespace EmployeeHRMS.Api.Services
         Task<JobPostingDetailResponseDto> ApproveJdAsync(int id);
         Task<JobPostingDetailResponseDto> GetDetailByIdAsync(int id);
         Task<List<QuestionBankItemResponseDto>> GetQuestionsAsync(int jobPostingId);
+        Task<QuestionBankItemResponseDto> UpdateQuestionAsync(int jobPostingId, int questionId, UpdateQuestionBankItemDto dto, CancellationToken cancellationToken = default);
     }
 }

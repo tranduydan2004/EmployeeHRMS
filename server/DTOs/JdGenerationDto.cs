@@ -132,8 +132,25 @@ namespace EmployeeHRMS.Api.DTOs
         public string Category { get; set; } = string.Empty;
         public string Difficulty { get; set; } = string.Empty;
         public ScoringRubricDto? ScoringRubric { get; set; }
+        public int ThinkSeconds { get; set; }
+        public int AnswerSeconds { get; set; }
         public int OrderIndex { get; set; }
         public DateTime CreatedDate { get; set; }
+    }
+
+    // === DTO cập nhật câu hỏi trong Question Bank do HR tinh chỉnh ===
+    public class UpdateQuestionBankItemDto
+    {
+        [StringLength(1000, MinimumLength = 5, ErrorMessage = "Nội dung câu hỏi phải từ 5 đến 1000 ký tự.")]
+        public string? Question { get; set; }
+
+        public ScoringRubricDto? ScoringRubric { get; set; }
+
+        [Range(5, 40, ErrorMessage = "Thời gian suy nghĩ phải từ 5 đến 40 giây.")]
+        public int? ThinkSeconds { get; set; }
+
+        [Range(10, 120, ErrorMessage = "Thời gian trả lời phải từ 10 đến 120 giây.")]
+        public int? AnswerSeconds { get; set; }
     }
 
     // === Sub-DTO cho ScoringRubric ===
