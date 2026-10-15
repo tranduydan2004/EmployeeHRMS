@@ -107,7 +107,7 @@ namespace EmployeeHRMS.Api.Services
             }
 
             // 5b. Validate thời lượng câu trả lời theo đúng Question.AnswerSeconds + buffer dung sai (mặc định 5s)
-            var allowedAnswerSeconds = question.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds;
+            var allowedAnswerSeconds = question.AnswerSeconds > 0 ? question.AnswerSeconds : _audioInterviewOptions.DefaultAnswerSeconds;
             var maxAllowedSeconds = allowedAnswerSeconds + _audioInterviewOptions.DurationBufferSeconds;
 
             if (dto.DurationSeconds > maxAllowedSeconds)

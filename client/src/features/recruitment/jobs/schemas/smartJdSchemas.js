@@ -117,3 +117,59 @@ export const updateJdContentSchema = z.object({
     .array(z.string().trim().min(1, 'Mục quyền lợi không được để trống'))
     .default([]),
 });
+
+/**
+ * Hằng số cấu hình thời gian suy nghĩ & trả lời câu hỏi phỏng vấn
+ * Đồng bộ chính xác với AudioInterviewOptions ở backend
+ */
+export const QUESTION_TIME_LIMITS = {
+  think: {
+    min: 5,
+    max: 40,
+    default: 20,
+    presets: [10, 15, 20, 30, 40],
+  },
+  answer: {
+    min: 10,
+    max: 120,
+    default: 90,
+    presets: [30, 45, 60, 90, 120],
+  },
+};
+
+/**
+ * Zod Schema cho việc tinh chỉnh câu hỏi & thời gian trong Question Bank
+ * Đồng bộ chính xác với UpdateQuestionBankItemDto backend
+ */
+export const updateQuestionBankItemSchema = z.object({
+  question: z
+    .string()
+    .trim()
+    .min(5, 'Nội dung câu hỏi phải từ 5 ký tự')
+    .max(1000, 'Nội dung câu hỏi không vượt quá 1000 ký tự')
+    .optional(),
+
+  scoringRubric: z
+    .object({
+      excellent: z.string().trim().default(''),
+      good: z.string().trim().default(''),
+      acceptable: z.string().trim().default(''),
+      poor: z.string().trim().default(''),
+    })
+    .optional(),
+
+  thinkSeconds: z.coerce
+    .number({ invalid_type_error: 'Thời gian suy nghĩ phải là số' })
+    .int('Thời gian suy nghĩ phải là số nguyên')
+    .min(QUESTION_TIME_LIMITS.think.min, `Thời gian suy nghĩ tối thiểu ${QUESTION_TIME_LIMITS.think.min} giây`)
+    .max(QUESTION_TIME_LIMITS.think.max, `Thời gian suy nghĩ tối đa ${QUESTION_TIME_LIMITS.think.max} giây`)
+    .optional(),
+
+  answerSeconds: z.coerce
+    .number({ invalid_type_error: 'Thời gian trả lời phải là số' })
+    .int('Thời gian trả lời phải là số nguyên')
+    .min(QUESTION_TIME_LIMITS.answer.min, `Thời gian trả lời tối thiểu ${QUESTION_TIME_LIMITS.answer.min} giây`)
+    .max(QUESTION_TIME_LIMITS.answer.max, `Thời gian trả lời tối đa ${QUESTION_TIME_LIMITS.answer.max} giây`)
+    .optional(),
+});
+

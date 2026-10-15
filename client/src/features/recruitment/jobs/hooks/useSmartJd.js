@@ -97,3 +97,25 @@ export function useJobQuestions(id) {
     enabled: !!id,
   });
 }
+
+export function useUpdateQuestionMutation() {
+  const queryClient = useQueryClient();
+  const updateQuestionInStore = useSmartJdStore((state) => state.updateQuestionItem);
+
+  return useMutation({
+    mutationFn: async ({ jobId, questionId, payload }) => {
+      const res = await jobPostingApi.updateQuestion(jobId, questionId, payload);
+      return res.data;
+    },
+    onSuccess: (data, variables) => {
+      updateQuestionInStore?.(variables.questionId, data);
+      queryClient.invalidateQueries({ queryKey: ['jobQuestions', variables.jobId] });
+      queryClient.invalidateQueries({ queryKey: ['jobPostingDetail', variables.jobId] });
+      toast.success('Cập nhật câu hỏi và thời lượng phỏng vấn thành công!');
+    },
+    onError: (err) => {
+      const msg = err?.response?.data?.error || err?.message || 'Không thể cập nhật câu hỏi';
+      toast.error(msg);
+    },
+  });
+}

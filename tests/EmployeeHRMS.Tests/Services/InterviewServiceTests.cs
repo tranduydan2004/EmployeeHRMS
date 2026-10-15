@@ -454,7 +454,7 @@ namespace EmployeeHRMS.Tests.Services
                 InterviewId = 1,
                 Question = "React Server Components vs SSR?",
                 OrderIndex = 1,
-                ThinkSeconds = 45,
+                ThinkSeconds = 40,
                 AnswerSeconds = 120,
                 ScoringRubric = new ScoringRubric
                 {
@@ -502,7 +502,7 @@ namespace EmployeeHRMS.Tests.Services
 
             var resQ1 = session.Questions.First(q => q.Id == 11);
             resQ1.Question.Should().Be("React Server Components vs SSR?");
-            resQ1.ThinkSeconds.Should().Be(45);
+            resQ1.ThinkSeconds.Should().Be(40);
             resQ1.AnswerSeconds.Should().Be(120);
             resQ1.HasAnswer.Should().BeTrue();
 

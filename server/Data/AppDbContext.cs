@@ -218,10 +218,18 @@ namespace EmployeeHRMS.Api.Data
                     b.ToJson();
                 });
 
+                entity.Property(q => q.ThinkSeconds)
+                    .IsRequired()
+                    .HasDefaultValue(20);
+
+                entity.Property(q => q.AnswerSeconds)
+                    .IsRequired()
+                    .HasDefaultValue(90);
+
                 entity.ToTable(t =>
                 {
-                    t.HasCheckConstraint("CK_InterviewQuestions_ThinkSeconds", "\"ThinkSeconds\" IS NULL OR \"ThinkSeconds\" BETWEEN 5 AND 40");
-                    t.HasCheckConstraint("CK_InterviewQuestions_AnswerSeconds", "\"AnswerSeconds\" IS NULL OR \"AnswerSeconds\" BETWEEN 10 AND 120");
+                    t.HasCheckConstraint("CK_InterviewQuestions_ThinkSeconds", "\"ThinkSeconds\" BETWEEN 5 AND 40");
+                    t.HasCheckConstraint("CK_InterviewQuestions_AnswerSeconds", "\"AnswerSeconds\" BETWEEN 10 AND 120");
                 });
             });
 

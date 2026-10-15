@@ -138,5 +138,17 @@ namespace EmployeeHRMS.Api.Controllers
             var result = await _jobPostingService.GetQuestionsAsync(id);
             return Ok(result);
         }
+
+        // PUT: api/jobpostings/{jobId}/questions/{questionId} — Admin, HR only
+        [HttpPut("{jobId}/questions/{questionId}")]
+        public async Task<IActionResult> UpdateQuestion(
+            int jobId,
+            int questionId,
+            [FromBody] UpdateQuestionBankItemDto dto,
+            CancellationToken cancellationToken)
+        {
+            var result = await _jobPostingService.UpdateQuestionAsync(jobId, questionId, dto, cancellationToken);
+            return Ok(result);
+        }
     }
 }

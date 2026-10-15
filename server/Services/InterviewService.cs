@@ -240,7 +240,9 @@ namespace EmployeeHRMS.Api.Services
             {
                 InterviewId = interviewId,
                 Question = dto.Question,
-                OrderIndex = dto.OrderIndex
+                OrderIndex = dto.OrderIndex,
+                ThinkSeconds = _audioInterviewOptions.DefaultThinkSeconds,
+                AnswerSeconds = _audioInterviewOptions.DefaultAnswerSeconds
             };
 
             interview.Questions.Add(question);
@@ -395,8 +397,8 @@ namespace EmployeeHRMS.Api.Services
                 {
                     Question = qb.Question,
                     OrderIndex = qb.OrderIndex,
-                    ThinkSeconds = qb.ThinkSeconds,
-                    AnswerSeconds = qb.AnswerSeconds,
+                    ThinkSeconds = qb.ThinkSeconds ?? _audioInterviewOptions.DefaultThinkSeconds,
+                    AnswerSeconds = qb.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds,
                     ScoringRubric = qb.ScoringRubric != null
                         ? new ScoringRubric
                         {
@@ -518,8 +520,8 @@ namespace EmployeeHRMS.Api.Services
                         Id = q.Id,
                         Question = q.Question,
                         OrderIndex = q.OrderIndex,
-                        ThinkSeconds = q.ThinkSeconds ?? _audioInterviewOptions.DefaultThinkSeconds,
-                        AnswerSeconds = q.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds,
+                        ThinkSeconds = q.ThinkSeconds,
+                        AnswerSeconds = q.AnswerSeconds,
                         HasAnswer = answeredQuestionIds.Contains(q.Id)
                     })
                     .ToList()

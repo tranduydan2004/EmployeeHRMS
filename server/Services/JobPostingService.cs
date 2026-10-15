@@ -1,3 +1,4 @@
+using EmployeeHRMS.Api.Configuration;
 using EmployeeHRMS.Api.Data;
 using EmployeeHRMS.Api.DTOs;
 using EmployeeHRMS.Api.DTOs.Common;
@@ -7,6 +8,7 @@ using EmployeeHRMS.Api.Models;
 using EmployeeHRMS.Api.Models.ValueObjects;
 using EmployeeHRMS.Api.Services.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace EmployeeHRMS.Api.Services
 {
@@ -21,6 +23,7 @@ namespace EmployeeHRMS.Api.Services
         private readonly EventLogger _eventLogger;
         private readonly IJdGenerationService _jdGenerationService;
         private readonly IQuestionBankService _questionBankService;
+        private readonly AudioInterviewOptions _audioInterviewOptions;
 
         private static readonly Dictionary<string, Func<IQueryable<JobPosting>, bool, IOrderedQueryable<JobPosting>>> SortMappings =
             new(StringComparer.OrdinalIgnoreCase)
@@ -34,12 +37,14 @@ namespace EmployeeHRMS.Api.Services
             AppDbContext context,
             EventLogger eventLogger,
             IJdGenerationService jdGenerationService,
-            IQuestionBankService questionBankService)
+            IQuestionBankService questionBankService,
+            IOptions<AudioInterviewOptions>? audioInterviewOptions = null)
         {
             _context = context;
             _eventLogger = eventLogger;
             _jdGenerationService = jdGenerationService;
             _questionBankService = questionBankService;
+            _audioInterviewOptions = audioInterviewOptions?.Value ?? new AudioInterviewOptions();
         }
 
         // Private helper: map JobPosting entity → JobPostingResponseDto (dùng sau khi đã Include)
@@ -406,10 +411,11 @@ namespace EmployeeHRMS.Api.Services
 
             var generatedQuestions = await _questionBankService.GenerateQuestionsAsync(promptData);
 
-            // Map kết quả LLM → QuestionBankItem entities và lưu DB
+            // Map kết quả LLM → QuestionBankItem entities và lưu DB (gợi ý thời gian theo category + difficulty)
             var orderIndex = 0;
             foreach (var result in generatedQuestions)
             {
+                var (suggestedThink, suggestedAnswer) = _audioInterviewOptions.SuggestTimeLimit(result.Category, result.Difficulty);
                 var item = new QuestionBankItem
                 {
                     JobPostingId = job.Id,
@@ -417,6 +423,8 @@ namespace EmployeeHRMS.Api.Services
                     Category = result.Category,
                     Difficulty = result.Difficulty,
                     ScoringRubric = result.ScoringRubric,
+                    ThinkSeconds = suggestedThink,
+                    AnswerSeconds = suggestedAnswer,
                     OrderIndex = orderIndex++,
                     CreatedDate = DateTime.UtcNow
                 };
@@ -458,6 +466,70 @@ namespace EmployeeHRMS.Api.Services
                 .ToListAsync();
 
             return questions.Select(MapToQuestionBankItemResponseDto).ToList();
+        }
+
+        public async Task<QuestionBankItemResponseDto> UpdateQuestionAsync(
+            int jobPostingId,
+            int questionId,
+            UpdateQuestionBankItemDto dto,
+            CancellationToken cancellationToken = default)
+        {
+            var job = await _context.JobPostings
+                .FirstOrDefaultAsync(j => j.Id == jobPostingId, cancellationToken)
+                ?? throw new NotFoundException("JobPosting", jobPostingId);
+
+            if (job.Status == JobPostingStatus.Closed)
+                throw new BusinessRuleException("Không thể chỉnh sửa câu hỏi của tin tuyển dụng đã đóng.");
+
+            var question = await _context.QuestionBankItems
+                .FirstOrDefaultAsync(q => q.Id == questionId && q.JobPostingId == jobPostingId, cancellationToken)
+                ?? throw new NotFoundException($"Câu hỏi #{questionId} không tồn tại trong tin tuyển dụng #{jobPostingId}.");
+
+            if (dto.ThinkSeconds.HasValue && !_audioInterviewOptions.IsThinkSecondsValid(dto.ThinkSeconds))
+            {
+                throw new BusinessRuleException(
+                    $"Thời gian suy nghĩ không hợp lệ ({dto.ThinkSeconds}s). Phải từ {_audioInterviewOptions.MinThinkSeconds} đến {_audioInterviewOptions.MaxThinkSeconds} giây.");
+            }
+
+            if (dto.AnswerSeconds.HasValue && !_audioInterviewOptions.IsAnswerSecondsValid(dto.AnswerSeconds))
+            {
+                throw new BusinessRuleException(
+                    $"Thời gian trả lời không hợp lệ ({dto.AnswerSeconds}s). Phải từ {_audioInterviewOptions.MinAnswerSeconds} đến {_audioInterviewOptions.MaxAnswerSeconds} giây.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.Question))
+            {
+                question.Question = dto.Question.Trim();
+            }
+
+            if (dto.ScoringRubric != null)
+            {
+                question.ScoringRubric = new ScoringRubric
+                {
+                    Excellent = dto.ScoringRubric.Excellent,
+                    Good = dto.ScoringRubric.Good,
+                    Acceptable = dto.ScoringRubric.Acceptable,
+                    Poor = dto.ScoringRubric.Poor
+                };
+            }
+
+            if (dto.ThinkSeconds.HasValue)
+            {
+                question.ThinkSeconds = dto.ThinkSeconds.Value;
+            }
+
+            if (dto.AnswerSeconds.HasValue)
+            {
+                question.AnswerSeconds = dto.AnswerSeconds.Value;
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _eventLogger.LogEvent("QuestionBank",
+                $"Question #{questionId} updated for JobPosting #{jobPostingId} (Think: {question.ThinkSeconds}s, Answer: {question.AnswerSeconds}s)",
+                _eventLogger.OnEntityUpdated);
+
+            return MapToQuestionBankItemResponseDto(question);
         }
 
         // ============================================================
@@ -504,13 +576,15 @@ namespace EmployeeHRMS.Api.Services
             QuestionCount = job.QuestionBankItems?.Count ?? 0
         };
 
-        private static QuestionBankItemResponseDto MapToQuestionBankItemResponseDto(QuestionBankItem q) => new()
+        private QuestionBankItemResponseDto MapToQuestionBankItemResponseDto(QuestionBankItem q) => new()
         {
             Id = q.Id,
             JobPostingId = q.JobPostingId,
             Question = q.Question,
             Category = q.Category.ToString(),
             Difficulty = q.Difficulty.ToString(),
+            ThinkSeconds = q.ThinkSeconds ?? _audioInterviewOptions.DefaultThinkSeconds,
+            AnswerSeconds = q.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds,
             ScoringRubric = q.ScoringRubric != null
                 ? new ScoringRubricDto
                 {

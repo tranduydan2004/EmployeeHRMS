@@ -44,6 +44,13 @@ export const jobPostingApi = {
    * Lấy danh sách câu hỏi phỏng vấn trong Question Bank kèm ScoringRubric 4 mức
    */
   getQuestions: (id) => axiosClient.get(`/JobPostings/${id}/questions`),
+
+  /**
+   * PUT /api/JobPostings/{jobId}/questions/{questionId}
+   * Cập nhật nội dung câu hỏi, barem rubric, và thời gian suy nghĩ / trả lời theo từng câu
+   */
+  updateQuestion: (jobId, questionId, payload) =>
+    axiosClient.put(`/JobPostings/${jobId}/questions/${questionId}`, payload),
 };
 
 export default jobPostingApi;
