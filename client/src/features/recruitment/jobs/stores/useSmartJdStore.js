@@ -115,6 +115,15 @@ export const useSmartJdStore = create((set, get) => ({
 
   setQuestions: (questions) => set({ questions }),
 
+  // Cập nhật từng câu hỏi trong danh sách câu hỏi
+  updateQuestionItem: (questionId, updatedFields) => {
+    set((state) => ({
+      questions: state.questions.map((q) =>
+        q.id === questionId ? { ...q, ...updatedFields } : q
+      ),
+    }));
+  },
+
   // Cập nhật text Intro
   updateIntro: (intro) => {
     set((state) => ({

@@ -27,6 +27,7 @@ import { useCandidates } from '@/features/recruitment/candidates';
 import { toast } from '@/components/Toast/useToastStore';
 import ApplyModal from './ApplyModal';
 import SmartJdModal from './SmartJd/SmartJdModal';
+import QuestionBankSection from './SmartJd/QuestionBankSection';
 
 const CATEGORY_COLORS = {
   Technical: { bg: '#eff6ff', text: '#1e40af', border: '#bfdbfe' },
@@ -446,133 +447,12 @@ export default function JobPostingDetail() {
 
         {/* Tab 2: Ngân hàng câu hỏi phỏng vấn & Barem (Admin / HR) */}
         {activeTab === 'questions' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {questions?.map((item, qIdx) => {
-              const isExpanded = expandedQuestionIdx === qIdx;
-              const catStyle = CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Technical;
-              const rubric = item.scoringRubric;
-
-              return (
-                <div
-                  key={item.id || qIdx}
-                  style={{
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--bg-card)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    onClick={() => setExpandedQuestionIdx(isExpanded ? -1 : qIdx)}
-                    style={{
-                      padding: '1rem 1.25rem',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      gap: '1rem',
-                      cursor: 'pointer',
-                      backgroundColor: isExpanded ? 'var(--slate-50)' : 'transparent',
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flex: 1 }}>
-                      <span
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: 'var(--radius-full)',
-                          backgroundColor: '#f3e8ff',
-                          color: '#7c3aed',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 700,
-                          fontSize: '0.8rem',
-                          flexshrink: 0,
-                        }}
-                      >
-                        {qIdx + 1}
-                      </span>
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--slate-900)' }}>
-                          {item.question}
-                        </h4>
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.45rem' }}>
-                          <span
-                            style={{
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                              padding: '0.15rem 0.55rem',
-                              borderRadius: 'var(--radius-full)',
-                              backgroundColor: catStyle.bg,
-                              color: catStyle.text,
-                              border: `1px solid ${catStyle.border}`,
-                            }}
-                          >
-                            {item.category}
-                          </span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
-                            Độ khó: {item.difficulty}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button type="button" style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>
-                      {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                    </button>
-                  </div>
-
-                  {isExpanded && rubric && (
-                    <div
-                      style={{
-                        padding: '1.25rem',
-                        borderTop: '1px solid var(--border-color)',
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                        gap: '0.75rem',
-                      }}
-                    >
-                      <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#065f46', marginBottom: '0.25rem' }}>
-                          🌟 Xuất Sắc (9-10đ)
-                        </div>
-                        <p style={{ margin: 0, fontSize: '0.78rem', color: '#047857', lineHeight: 1.4 }}>
-                          {rubric.excellent}
-                        </p>
-                      </div>
-
-                      <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#1e40af', marginBottom: '0.25rem' }}>
-                          👍 Tốt (7-8đ)
-                        </div>
-                        <p style={{ margin: 0, fontSize: '0.78rem', color: '#1d4ed8', lineHeight: 1.4 }}>
-                          {rubric.good}
-                        </p>
-                      </div>
-
-                      <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#92400e', marginBottom: '0.25rem' }}>
-                          👌 Chấp Nhận (5-6đ)
-                        </div>
-                        <p style={{ margin: 0, fontSize: '0.78rem', color: '#b45309', lineHeight: 1.4 }}>
-                          {rubric.acceptable}
-                        </p>
-                      </div>
-
-                      <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: '#fef2f2', border: '1px solid #fecaca' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#991b1b', marginBottom: '0.25rem' }}>
-                          ⚠️ Kém (&lt;5đ)
-                        </div>
-                        <p style={{ margin: 0, fontSize: '0.78rem', color: '#b91c1c', lineHeight: 1.4 }}>
-                          {rubric.poor}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <QuestionBankSection
+            questions={questions || []}
+            jobId={job.id}
+            jobStatus={job.status}
+            canEdit={canManageJobPostings}
+          />
         )}
       </Card>
 
