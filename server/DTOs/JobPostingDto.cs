@@ -64,7 +64,7 @@ namespace EmployeeHRMS.Api.DTOs
         public string? AdditionalNotes { get; set; }
     }
 
-    // === DTO trả về — Projection kèm DepartmentName + ApplicationCount ===
+    // === DTO trả về — Projection kèm DepartmentName + ApplicationCount (Dùng cho danh sách phân trang) ===
     public class JobPostingResponseDto
     {
         public int Id { get; set; }
@@ -75,5 +75,25 @@ namespace EmployeeHRMS.Api.DTOs
         public string DepartmentName { get; set; } = string.Empty;
         public int ApplicationCount { get; set; }
         public DateTime CreatedDate { get; set; }
+    }
+
+    // === DTO trả về cho Public / Candidate (GET /api/jobpostings/{id}) ===
+    public class JobPostingPublicResponseDto
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+        public DateTime CreatedDate { get; set; }
+
+        public string Level { get; set; } = string.Empty;
+        public string WorkMode { get; set; } = string.Empty;
+        public List<string> CoreSkills { get; set; } = new();
+
+        public JdContentDto? JdContent { get; set; }
+
+        // Trường cũ (fallback cho tin tuyển dụng cũ trước khi có Smart JD)
+        public string? Description { get; set; }
+        public string? Requirements { get; set; }
     }
 }

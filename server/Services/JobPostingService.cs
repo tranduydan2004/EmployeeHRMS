@@ -135,6 +135,24 @@ namespace EmployeeHRMS.Api.Services
             return MapToResponseDto(job);
         }
 
+        public async Task<JobPostingPublicResponseDto> GetPublicByIdAsync(int id, bool isManagementUser = false)
+        {
+            var query = _context.JobPostings
+                .AsNoTracking()
+                .Include(j => j.Department)
+                .AsQueryable();
+
+            if (!isManagementUser)
+            {
+                query = query.Where(j => j.Status == JobPostingStatus.Published);
+            }
+
+            var job = await query.FirstOrDefaultAsync(j => j.Id == id)
+                ?? throw new NotFoundException("JobPosting", id);
+
+            return MapToPublicResponseDto(job);
+        }
+
         /// <summary>
         /// Lấy danh sách tin tuyển dụng đang Published.
         /// Minh họa: LINQ Where với enum comparison trên EF Core.
@@ -596,6 +614,30 @@ namespace EmployeeHRMS.Api.Services
                 : null,
             OrderIndex = q.OrderIndex,
             CreatedDate = q.CreatedDate
+        };
+
+        private static JobPostingPublicResponseDto MapToPublicResponseDto(JobPosting job) => new()
+        {
+            Id = job.Id,
+            Title = job.Title,
+            Status = job.Status.ToString(),
+            DepartmentName = job.Department?.Name ?? "N/A",
+            CreatedDate = job.CreatedDate,
+            Level = job.Level.ToString(),
+            WorkMode = job.WorkMode.ToString(),
+            CoreSkills = job.CoreSkills ?? new List<string>(),
+            JdContent = job.JdContent != null
+                ? new JdContentDto
+                {
+                    Intro = job.JdContent.Intro,
+                    Responsibilities = job.JdContent.Responsibilities ?? new List<string>(),
+                    MustHave = job.JdContent.MustHave ?? new List<string>(),
+                    NiceToHave = job.JdContent.NiceToHave ?? new List<string>(),
+                    Benefits = job.JdContent.Benefits ?? new List<string>()
+                }
+                : null,
+            Description = job.Description,
+            Requirements = job.Requirements
         };
     }
 }
