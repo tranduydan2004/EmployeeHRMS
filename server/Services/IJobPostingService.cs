@@ -11,6 +11,7 @@ namespace EmployeeHRMS.Api.Services
         // --- Existing CRUD ---
         Task<PagedResult<JobPostingResponseDto>> GetAllAsync(JobPostingQueryParams queryParams);
         Task<JobPostingResponseDto?> GetByIdAsync(int id);
+        Task<JobPostingPublicResponseDto> GetPublicByIdAsync(int id, bool isManagementUser = false);
         Task<IEnumerable<JobPostingResponseDto>> GetActiveJobsAsync();
         Task<IEnumerable<JobPostingResponseDto>> GetByDepartmentAsync(int departmentId);
         Task<JobPostingResponseDto> CreateAsync(JobPostingCreateDto dto);

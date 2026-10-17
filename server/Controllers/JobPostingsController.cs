@@ -38,12 +38,13 @@ namespace EmployeeHRMS.Api.Controllers
             return Ok(result);
         }
 
-        // GET: api/jobpostings/{id} — Public
+        // GET: api/jobpostings/{id} — Public (Candidate) / Admin
         [HttpGet("{id}")]
         [AllowAnonymous]
         public async Task<IActionResult> GetById(int id)
         {
-            var job = await _jobPostingService.GetByIdAsync(id);
+            var isAdminOrHr = User.IsInRole("Admin") || User.IsInRole("HR");
+            var job = await _jobPostingService.GetPublicByIdAsync(id, isManagementUser: isAdminOrHr);
             return Ok(job);
         }
 

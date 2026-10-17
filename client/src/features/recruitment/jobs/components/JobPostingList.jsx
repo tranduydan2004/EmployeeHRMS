@@ -242,7 +242,7 @@ export default function JobPostingList() {
                     marginBottom: '1rem',
                   }}
                 >
-                  {job.description || job.intro || 'Chưa có mô tả chi tiết.'}
+                  {job.jdContent?.intro || job.description || job.intro || 'Chưa có mô tả chi tiết.'}
                 </p>
               </div>
 

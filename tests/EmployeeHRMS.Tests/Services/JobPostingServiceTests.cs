@@ -160,7 +160,26 @@ namespace EmployeeHRMS.Tests.Services
                 OrderIndex = 0
             };
 
-            _context.JobPostings.AddRange(draftJob, approvedJob, closedJob);
+            var publishedJob = new JobPosting
+            {
+                Id = 4,
+                Title = "Fullstack .NET & React Engineer",
+                DepartmentId = 1,
+                Status = JobPostingStatus.Published,
+                Level = JobLevel.Senior,
+                WorkMode = WorkMode.Hybrid,
+                CoreSkills = new List<string> { "C#", "React", "PostgreSQL" },
+                JdContent = new JdContent
+                {
+                    Intro = "Looking for Senior Fullstack",
+                    Responsibilities = new List<string> { "Fullstack dev" },
+                    MustHave = new List<string> { "C#", "React" },
+                    NiceToHave = new List<string> { "Docker" },
+                    Benefits = new List<string> { "Competitive salary" }
+                }
+            };
+
+            _context.JobPostings.AddRange(draftJob, approvedJob, closedJob, publishedJob);
             _context.QuestionBankItems.AddRange(question1, question2, question3);
             _context.SaveChanges();
         }
@@ -360,6 +379,67 @@ namespace EmployeeHRMS.Tests.Services
             var act = () => _service.UpdateQuestionAsync(3, 12, dto);
             await act.Should().ThrowAsync<BusinessRuleException>()
                 .WithMessage("*Không thể chỉnh sửa câu hỏi của tin tuyển dụng đã đóng*");
+        }
+
+        [Fact]
+        public async Task GetPublicByIdAsync_WhenJobIsPublished_ReturnsPublicResponseDtoWithStructuredJdContent()
+        {
+            // Act
+            var result = await _service.GetPublicByIdAsync(4, isManagementUser: false);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.Id.Should().Be(4);
+            result.Title.Should().Be("Fullstack .NET & React Engineer");
+            result.Status.Should().Be("Published");
+            result.DepartmentName.Should().Be("Engineering");
+            result.Level.Should().Be("Senior");
+            result.WorkMode.Should().Be("Hybrid");
+            result.CoreSkills.Should().ContainInOrder("C#", "React", "PostgreSQL");
+
+            result.JdContent.Should().NotBeNull();
+            result.JdContent!.Intro.Should().Be("Looking for Senior Fullstack");
+            result.JdContent.Responsibilities.Should().Contain("Fullstack dev");
+            result.JdContent.MustHave.Should().Contain("C#");
+            result.JdContent.NiceToHave.Should().Contain("Docker");
+            result.JdContent.Benefits.Should().Contain("Competitive salary");
+        }
+
+        [Theory]
+        [InlineData(1)] // Draft
+        [InlineData(2)] // Approved
+        [InlineData(3)] // Closed
+        public async Task GetPublicByIdAsync_WhenJobIsNotPublished_AndNonManagementUser_ThrowsNotFoundException(int nonPublishedJobId)
+        {
+            // Act
+            var act = () => _service.GetPublicByIdAsync(nonPublishedJobId, isManagementUser: false);
+
+            // Assert
+            await act.Should().ThrowAsync<NotFoundException>();
+        }
+
+        [Fact]
+        public async Task GetPublicByIdAsync_WhenJobIsNotPublished_AndManagementUser_ReturnsDto()
+        {
+            // Act: Job 1 is Draft, but user is Admin/HR
+            var result = await _service.GetPublicByIdAsync(1, isManagementUser: true);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.Id.Should().Be(1);
+            result.Status.Should().Be("Draft");
+            result.JdContent.Should().NotBeNull();
+            result.JdContent!.Intro.Should().Be("Looking for Senior .NET");
+        }
+
+        [Fact]
+        public async Task GetPublicByIdAsync_WhenJobDoesNotExist_ThrowsNotFoundException()
+        {
+            // Act
+            var act = () => _service.GetPublicByIdAsync(999, isManagementUser: false);
+
+            // Assert
+            await act.Should().ThrowAsync<NotFoundException>();
         }
     }
 }
