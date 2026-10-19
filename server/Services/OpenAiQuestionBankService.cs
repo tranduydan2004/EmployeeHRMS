@@ -83,19 +83,36 @@ namespace EmployeeHRMS.Api.Services
         """);
 
         private const string SystemPrompt = """
-            You are a senior HR interview specialist for a corporate HRMS system.
-            Your task is to generate situational interview questions with detailed scoring rubrics.
+            You are a senior HR and technical interview specialist for an enterprise HRMS system.
+            Your task is to generate 3-5 situational and technical interview questions with objective, checklist-based scoring rubrics for automated AI candidate evaluation.
 
             RULES:
-            - Generate 3-5 questions that directly assess the skills and responsibilities described in the JD
-            - Mix question categories: include at least 1 Technical and 1 Behavioral/Situational question
-            - Match question difficulty to the specified level (e.g., Junior questions should not require architect-level knowledge)
-            - Each scoring rubric level must describe specific, observable behaviors — not vague qualities
-            - Excellent: demonstrates mastery and depth beyond the requirement
-            - Good: meets the requirement with solid understanding
-            - Acceptable: shows basic awareness but lacks depth
-            - Poor: demonstrates fundamental misunderstanding or no relevant experience
-            - Write all questions and rubrics in English
+            1. QUESTION SPECIFICATIONS:
+               - Generate 3-5 questions that directly assess the skills and key responsibilities in the JD.
+               - Mix categories: include at least 1 Technical question and at least 1 Behavioral/Situational question.
+               - Difficulty calibration: Match question complexity to the candidate's level:
+                 * Intern/Fresher/Junior: Core fundamentals, standard language/framework APIs, basic debugging, edge cases, and clean code.
+                 * Middle: Design patterns, performance nuances, edge cases, structured error recovery.
+                 * Senior/Lead: Architectural trade-offs, scalability, concurrency, fault tolerance, and technical leadership.
+
+            2. CRITICAL RULES FOR SCORING RUBRICS (NO VAGUE ADJECTIVES):
+               - NEVER use subjective or qualitative adjectives like "good understanding", "solid knowledge", "lacks depth", "expert level", or "satisfactory".
+               - Every rubric level MUST use concrete, observable checkpoints and mutually exclusive conditions tailored to that specific question:
+
+               FOR TECHNICAL QUESTIONS:
+               * Excellent (9-10 pts): Explicitly states all mandatory technical concepts/mechanics AND discusses at least one concrete architectural trade-off, performance nuance, edge case, or production-grade mitigation (calibrated to the role's level).
+               * Good (7-8 pts): Accurately explains all mandatory core concepts and mechanics without factual errors, but omits advanced edge cases or architectural trade-offs.
+               * Acceptable (5-6 pts): Identifies at least 1-2 core concepts correctly, but shows partial gaps, minor confusion, or omits key mechanisms; has NO fundamental factual misconceptions.
+               * Poor (1-4 pts): Gives factually incorrect statements, fundamental architectural misconceptions, confuses basic terms, or cannot answer.
+
+               FOR BEHAVIORAL / SITUATIONAL QUESTIONS:
+               * Excellent (9-10 pts): Complete STAR structure (Situation, Task, Action, Result). Demonstrates clear individual ownership ("I" vs "we"), explains specific decision rationale, provides measurable outcomes/impact, and shares retrospective learnings or preventive actions.
+               * Good (7-8 pts): Clear STAR structure with specific personal actions and a positive resolution, but lacks quantifiable metrics or retrospective lessons learned.
+               * Acceptable (5-6 pts): Describes a relevant situation and general outcome, but actions are vague or passive, relies heavily on generic team actions ("we") without clarifying individual contribution.
+               * Poor (1-4 pts): Fails to provide a concrete past experience, blames others, demonstrates unprofessional or uncollaborative conduct, or provides no actionable resolution.
+
+            3. LANGUAGE:
+               - Output all questions and scoring rubrics strictly in English.
             """;
 
         private const string FewShotUserExample = """
@@ -111,14 +128,25 @@ namespace EmployeeHRMS.Api.Services
             {
                 "questions": [
                     {
-                        "question": "Describe a time when you had to debug a complex issue in a web API. Walk us through your approach from identifying the problem to implementing the fix.",
+                        "question": "Walk us through how you would diagnose and resolve an intermittent 500 Internal Server Error in an ASP.NET Core Web API under high load.",
                         "category": "Technical",
                         "difficulty": "Junior",
                         "scoringRubric": {
-                            "excellent": "Demonstrates a systematic debugging approach: reproducing the issue, using logging/breakpoints, isolating the root cause, implementing and testing the fix, and adding preventive measures like unit tests or monitoring.",
-                            "good": "Describes a logical debugging process with clear steps: reproducing, using basic debugging tools, fixing the issue, and verifying the solution works.",
-                            "acceptable": "Can describe a debugging scenario but the approach is somewhat ad-hoc — relies mainly on trial and error or console logging without a structured methodology.",
-                            "poor": "Cannot articulate a clear debugging process, or describes simply asking a colleague for help without attempting to understand the problem independently."
+                            "excellent": "Explicitly details a systematic workflow: checking structured logs/correlation IDs, inspecting APM/exception stack traces, and determining whether the root cause is DB connection pool starvation, timeout, or unhandled exceptions. Additionally mentions preventive measures (e.g., adding health checks, automated regression tests, or alerting).",
+                            "good": "Accurately details a step-by-step diagnostic workflow: inspecting server error logs, reproducing with matching payload in staging, fixing the code path, and verifying. Factual without misconceptions, but omits connection pool exhaustion, timeout nuances, or long-term monitoring.",
+                            "acceptable": "Identifies basic troubleshooting techniques such as reading console output or stepping through code with a local debugger, but lacks a disciplined server-side diagnostic mindset (e.g., no mention of correlation IDs, log aggregation, or production safety).",
+                            "poor": "Cannot articulate a debugging methodology, suggests blindly pushing trial-and-error fixes directly to production, or confuses client-side (4xx) errors with server-side (5xx) errors."
+                        }
+                    },
+                    {
+                        "question": "Describe a situation where you had a technical disagreement with a team member regarding an API contract or schema design. How did you resolve it?",
+                        "category": "Behavioral",
+                        "difficulty": "Junior",
+                        "scoringRubric": {
+                            "excellent": "Uses STAR method: details a specific conflict over schema/API design, explains their personal role in scheduling an objective discussion, evaluates options against backward compatibility and consumer needs, reaches consensus, and shares a clear takeaway on team communication.",
+                            "good": "Uses STAR method: describes a real technical disagreement, explains how they communicated calmly to compare pros and cons, and reached a working agreement, but does not reflect on broader team processes or backward-compatibility implications.",
+                            "acceptable": "Describes a disagreement and the eventual resolution, but actions are passive or attributes the final decision entirely to a lead/manager without explaining their own reasoning.",
+                            "poor": "Fails to provide a concrete scenario, admits to unilaterally overriding the colleague without discussion, displays uncollaborative behavior, or holds unaddressed resentment."
                         }
                     }
                 ]
