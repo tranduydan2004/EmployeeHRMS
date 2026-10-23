@@ -25,20 +25,71 @@ namespace EmployeeHRMS.Api.Services
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly AudioInterviewOptions _audioInterviewOptions;
         private readonly IEmailService? _emailService;
+        private readonly IAudioTranscriptionQueue? _queue;
 
         public InterviewService(
             AppDbContext context,
             EventLogger eventLogger,
             IHttpContextAccessor httpContextAccessor,
             IOptions<AudioInterviewOptions>? audioInterviewOptions = null,
-            IEmailService? emailService = null)
+            IEmailService? emailService = null,
+            IAudioTranscriptionQueue? queue = null)
         {
             _context = context;
             _eventLogger = eventLogger;
             _httpContextAccessor = httpContextAccessor;
             _audioInterviewOptions = audioInterviewOptions?.Value ?? new AudioInterviewOptions();
             _emailService = emailService;
+            _queue = queue;
         }
+
+        private static QuestionEvaluationResponseDto MapToEvaluationDto(QuestionEvaluation evaluation) => new()
+        {
+            Id = evaluation.Id,
+            InterviewAnswerId = evaluation.InterviewAnswerId,
+            VersionNumber = evaluation.VersionNumber,
+            TranscriptSnapshot = evaluation.TranscriptSnapshot,
+            Level = evaluation.Level?.ToString(),
+            Score = evaluation.Score,
+            Analysis = evaluation.Analysis,
+            EvidenceQuotes = evaluation.EvidenceQuotes != null ? new List<string>(evaluation.EvidenceQuotes) : new List<string>(),
+            Strengths = evaluation.Strengths != null ? new List<string>(evaluation.Strengths) : new List<string>(),
+            Concerns = evaluation.Concerns != null ? new List<string>(evaluation.Concerns) : new List<string>(),
+            ModelName = evaluation.ModelName,
+            PromptVersion = evaluation.PromptVersion,
+            Outcome = evaluation.Outcome.ToString(),
+            Reason = evaluation.Reason,
+            ErrorMessage = evaluation.ErrorMessage,
+            EvaluatedAt = evaluation.EvaluatedAt,
+            EvaluatedByUserId = evaluation.EvaluatedByUserId,
+            IsActive = evaluation.IsActive
+        };
+
+        private static InterviewAnswerDetailDto MapToAnswerDetailDto(InterviewAnswer answer) => new()
+        {
+            Id = answer.Id,
+            InterviewQuestionId = answer.InterviewQuestionId,
+            AudioStorageKey = answer.AudioStorageKey,
+            AudioDurationSeconds = answer.AudioDurationSeconds,
+            SttDurationSeconds = answer.SttDurationSeconds,
+            AudioMimeType = answer.AudioMimeType,
+            Status = answer.Status.ToString(),
+            FailedStage = answer.FailedStage?.ToString(),
+            Transcript = answer.Transcript,
+            EditedTranscript = answer.EditedTranscript,
+            EffectiveTranscript = answer.GetEffectiveTranscript(),
+            LastEditedByUserId = answer.LastEditedByUserId,
+            LastEditedAt = answer.LastEditedAt,
+            DetectedLanguage = answer.DetectedLanguage,
+            SpeechMetrics = answer.SpeechMetrics,
+            ErrorMessage = answer.ErrorMessage,
+            CreatedAt = answer.CreatedAt,
+            CompletedAt = answer.CompletedAt,
+            Evaluations = answer.Evaluations?
+                .OrderByDescending(e => e.VersionNumber)
+                .Select(MapToEvaluationDto)
+                .ToList() ?? new List<QuestionEvaluationResponseDto>()
+        };
 
         /// <summary>
         /// Nested projection: Interview → InterviewResponseDto (kèm List<InterviewQuestionResponseDto>).
@@ -53,6 +104,7 @@ namespace EmployeeHRMS.Api.Services
             Status = interview.Status.ToString(),
             AiOverallScore = interview.AiOverallScore,
             AiOverallSummary = interview.AiOverallSummary,
+            Recommendation = interview.Recommendation?.ToString(),
 
             // Nested projection: List<InterviewQuestion> → List<InterviewQuestionResponseDto>
             Questions = interview.Questions
@@ -64,7 +116,10 @@ namespace EmployeeHRMS.Api.Services
                     CandidateAnswer = q.CandidateAnswer,
                     AiQuestionScore = q.AiQuestionScore,
                     AiFeedback = q.AiFeedback,
-                    OrderIndex = q.OrderIndex
+                    OrderIndex = q.OrderIndex,
+                    Category = q.Category?.ToString(),
+                    ScoringRubric = q.ScoringRubric,
+                    Answer = q.Answer != null ? MapToAnswerDetailDto(q.Answer) : null
                 })
                 .ToList()
         };
@@ -86,6 +141,8 @@ namespace EmployeeHRMS.Api.Services
             IQueryable<Interview> query = _context.Interviews
                 .AsNoTracking()
                 .Include(i => i.Questions)
+                    .ThenInclude(q => q.Answer)
+                        .ThenInclude(a => a!.Evaluations)
                 .Include(i => i.Interviewer)
                     .ThenInclude(u => u!.Employee);
 
@@ -159,6 +216,8 @@ namespace EmployeeHRMS.Api.Services
             var interview = await _context.Interviews
                 .AsNoTracking()
                 .Include(i => i.Questions)
+                    .ThenInclude(q => q.Answer)
+                        .ThenInclude(a => a!.Evaluations)
                 .Include(i => i.Interviewer)
                     .ThenInclude(u => u!.Employee)
                 .FirstOrDefaultAsync(i => i.Id == id)
@@ -172,6 +231,8 @@ namespace EmployeeHRMS.Api.Services
             var interviews = await _context.Interviews
                 .AsNoTracking()
                 .Include(i => i.Questions)
+                    .ThenInclude(q => q.Answer)
+                        .ThenInclude(a => a!.Evaluations)
                 .Include(i => i.Interviewer)
                     .ThenInclude(u => u!.Employee)
                 .Where(i => i.ApplicationId == applicationId)
@@ -393,21 +454,31 @@ namespace EmployeeHRMS.Api.Services
             // Copy câu hỏi từ QuestionBankItem sang InterviewQuestion: clone từng field của ScoringRubric (không gán reference)
             foreach (var qb in qbItems)
             {
+                // D3: Khi tạo lời mời, nếu câu hỏi chưa có rubric đầy đủ thì trả lỗi rõ ràng cho HR thay vì để đến lúc chấm mới NotScorable
+                if (qb.ScoringRubric == null ||
+                    string.IsNullOrWhiteSpace(qb.ScoringRubric.Poor) ||
+                    string.IsNullOrWhiteSpace(qb.ScoringRubric.Acceptable) ||
+                    string.IsNullOrWhiteSpace(qb.ScoringRubric.Good) ||
+                    string.IsNullOrWhiteSpace(qb.ScoringRubric.Excellent))
+                {
+                    throw new BusinessRuleException(
+                        $"Câu hỏi #{qb.Id} ('{qb.Question}') chưa có đầy đủ Scoring Rubric 4 mức. Vui lòng hoàn thiện rubric cho câu hỏi trước khi tạo lời mời phỏng vấn.");
+                }
+
                 interview.Questions.Add(new InterviewQuestion
                 {
                     Question = qb.Question,
                     OrderIndex = qb.OrderIndex,
+                    Category = qb.Category,
                     ThinkSeconds = qb.ThinkSeconds ?? _audioInterviewOptions.DefaultThinkSeconds,
                     AnswerSeconds = qb.AnswerSeconds ?? _audioInterviewOptions.DefaultAnswerSeconds,
-                    ScoringRubric = qb.ScoringRubric != null
-                        ? new ScoringRubric
-                        {
-                            Excellent = qb.ScoringRubric.Excellent,
-                            Good = qb.ScoringRubric.Good,
-                            Acceptable = qb.ScoringRubric.Acceptable,
-                            Poor = qb.ScoringRubric.Poor
-                        }
-                        : null
+                    ScoringRubric = new ScoringRubric
+                    {
+                        Excellent = qb.ScoringRubric.Excellent,
+                        Good = qb.ScoringRubric.Good,
+                        Acceptable = qb.ScoringRubric.Acceptable,
+                        Poor = qb.ScoringRubric.Poor
+                    }
                 });
             }
 
@@ -575,6 +646,165 @@ namespace EmployeeHRMS.Api.Services
                 ConsentedAt = interview.ConsentedAt,
                 Message = "Bắt đầu phiên phỏng vấn thành công."
             };
+        }
+
+        // ============================================================
+        // AI Rubric Grading & Re-evaluation Pipeline (Phase 4)
+        // ============================================================
+
+        public async Task<InterviewAnswerDetailDto> UpdateTranscriptAsync(
+            int interviewId,
+            int questionId,
+            string editedTranscript,
+            int currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(editedTranscript))
+            {
+                throw new BusinessRuleException("Nội dung bản bóc băng chỉnh sửa không được để trống.");
+            }
+
+            var interview = await _context.Interviews
+                .Include(i => i.Questions)
+                    .ThenInclude(q => q.Answer)
+                        .ThenInclude(a => a!.Evaluations)
+                .FirstOrDefaultAsync(i => i.Id == interviewId, cancellationToken);
+
+            if (interview == null)
+                throw new NotFoundException("Interview", interviewId);
+
+            var question = interview.Questions.FirstOrDefault(q => q.Id == questionId);
+            if (question == null)
+                throw new NotFoundException($"Không tìm thấy câu hỏi #{questionId} trong buổi phỏng vấn #{interviewId}.");
+
+            var answer = question.Answer;
+            if (answer == null)
+                throw new NotFoundException($"Câu trả lời cho câu hỏi #{questionId} chưa tồn tại.");
+
+            if (answer.Status == AudioProcessingStatus.Pending || answer.Status == AudioProcessingStatus.Transcribing)
+            {
+                throw new BusinessRuleException("Đoạn audio đang trong quá trình bóc băng, chưa thể chỉnh sửa bản bóc băng.");
+            }
+
+            if (answer.Status == AudioProcessingStatus.Scoring)
+            {
+                throw new ConflictException("Đang trong tiến trình chấm điểm, không thể chỉnh sửa transcript.");
+            }
+
+            answer.UpdateTranscript(editedTranscript, currentUserId);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _eventLogger.LogEvent("InterviewAnswer",
+                $"updated transcript (AnswerId: {answer.Id}, QuestionId: {questionId}, UserId: {currentUserId})",
+                _eventLogger.OnEntityUpdated);
+
+            return MapToAnswerDetailDto(answer);
+        }
+
+        public async Task<ReevaluateResponseDto> ReevaluateAnswerAsync(
+            int interviewId,
+            int questionId,
+            int currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            var interview = await _context.Interviews
+                .Include(i => i.Questions)
+                    .ThenInclude(q => q.Answer)
+                        .ThenInclude(a => a!.Evaluations)
+                .FirstOrDefaultAsync(i => i.Id == interviewId, cancellationToken);
+
+            if (interview == null)
+                throw new NotFoundException("Interview", interviewId);
+
+            var question = interview.Questions.FirstOrDefault(q => q.Id == questionId);
+            if (question == null)
+                throw new NotFoundException($"Không tìm thấy câu hỏi #{questionId} trong buổi phỏng vấn #{interviewId}.");
+
+            var answer = question.Answer;
+            if (answer == null)
+                throw new NotFoundException($"Câu trả lời cho câu hỏi #{questionId} chưa tồn tại.");
+
+            // Tránh chạy đè hai lần re-evaluate đồng thời (Q3: State machine concurrency guard)
+            if (answer.Status == AudioProcessingStatus.Scoring || answer.Status == AudioProcessingStatus.Transcribing)
+            {
+                throw new ConflictException("Câu trả lời đang trong tiến trình xử lý, không thể re-evaluate chồng chéo.");
+            }
+
+            // Chỉ cho phép Re-evaluate khi Answer đã hoàn thành (Completed) hoặc bị lỗi (Failed)
+            if (answer.Status != AudioProcessingStatus.Completed && answer.Status != AudioProcessingStatus.Failed)
+            {
+                throw new BusinessRuleException($"Không thể re-evaluate câu trả lời ở trạng thái '{answer.Status}'.");
+            }
+
+            var effectiveTranscript = answer.GetEffectiveTranscript();
+            if (string.IsNullOrWhiteSpace(effectiveTranscript))
+            {
+                throw new BusinessRuleException("Không thể re-evaluate vì chưa có nội dung bóc băng.");
+            }
+
+            answer.StartScoring();
+            await _context.SaveChangesAsync(cancellationToken);
+
+            if (_queue != null)
+            {
+                await _queue.EnqueueAsync(new AudioTranscriptionJob
+                {
+                    InterviewAnswerId = answer.Id,
+                    EnqueuedAt = DateTime.UtcNow
+                }, cancellationToken);
+            }
+
+            _eventLogger.LogEvent("InterviewAnswer",
+                $"re-evaluation initiated (AnswerId: {answer.Id}, QuestionId: {questionId}, UserId: {currentUserId})",
+                _eventLogger.OnEntityUpdated);
+
+            return new ReevaluateResponseDto
+            {
+                InterviewAnswerId = answer.Id,
+                QuestionId = questionId,
+                Status = answer.Status.ToString(),
+                Message = "Tác vụ chấm lại đã được đưa vào hàng đợi xử lý.",
+                EnqueuedAt = DateTime.UtcNow
+            };
+        }
+
+        public async Task<List<QuestionEvaluationResponseDto>> GetInterviewEvaluationsAsync(
+            int interviewId,
+            CancellationToken cancellationToken = default)
+        {
+            var exists = await _context.Interviews.AnyAsync(i => i.Id == interviewId, cancellationToken);
+            if (!exists)
+                throw new NotFoundException("Interview", interviewId);
+
+            var evaluations = await _context.QuestionEvaluations
+                .AsNoTracking()
+                .Include(e => e.InterviewAnswer)
+                    .ThenInclude(a => a.InterviewQuestion)
+                .Where(e => e.InterviewAnswer.InterviewQuestion.InterviewId == interviewId)
+                .OrderBy(e => e.InterviewAnswer.InterviewQuestion.OrderIndex)
+                .ThenByDescending(e => e.VersionNumber)
+                .ToListAsync(cancellationToken);
+
+            return evaluations.Select(MapToEvaluationDto).ToList();
+        }
+
+        public async Task<List<QuestionEvaluationResponseDto>> GetQuestionEvaluationsAsync(
+            int interviewId,
+            int questionId,
+            CancellationToken cancellationToken = default)
+        {
+            var exists = await _context.InterviewQuestions
+                .AnyAsync(q => q.InterviewId == interviewId && q.Id == questionId, cancellationToken);
+            if (!exists)
+                throw new NotFoundException($"Không tìm thấy câu hỏi #{questionId} trong buổi phỏng vấn #{interviewId}.");
+
+            var evaluations = await _context.QuestionEvaluations
+                .AsNoTracking()
+                .Where(e => e.InterviewAnswer.InterviewQuestionId == questionId)
+                .OrderByDescending(e => e.VersionNumber)
+                .ToListAsync(cancellationToken);
+
+            return evaluations.Select(MapToEvaluationDto).ToList();
         }
     }
 }

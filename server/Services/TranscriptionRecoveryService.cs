@@ -119,6 +119,26 @@ namespace EmployeeHRMS.Api.Services
                         "Pending job #{AnswerId} chưa xử lý trước khi restart đã được nạp lại vào hàng đợi.",
                         pending.Id);
                 }
+
+                // Phase 4: Nạp lại toàn bộ backlog các answer đã bóc băng xong đang chờ chấm ở trạng thái Scoring
+                var scoringAnswers = await _context.InterviewAnswers
+                    .Where(a => a.Status == AudioProcessingStatus.Scoring)
+                    .ToListAsync(cancellationToken);
+
+                foreach (var scoring in scoringAnswers)
+                {
+                    await _queue.EnqueueAsync(new AudioTranscriptionJob
+                    {
+                        InterviewAnswerId = scoring.Id,
+                        EnqueuedAt = scoring.UpdatedAt
+                    }, cancellationToken);
+
+                    response.PendingJobsRequeued++;
+
+                    _logger.LogInformation(
+                        "Scoring backlog job #{AnswerId} đã được nạp lại vào hàng đợi để chấm điểm AI.",
+                        scoring.Id);
+                }
             }
 
             if (response.TotalProcessed > 0)

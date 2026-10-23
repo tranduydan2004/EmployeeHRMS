@@ -5,7 +5,7 @@ import { usePermission } from '@/hooks/usePermission';
 import InterviewScheduleModal from './InterviewScheduleModal';
 import QuestionEvaluationCard from './QuestionEvaluationCard';
 import { Card, Button, Badge, Skeleton, SearchBar, Pagination } from '@/components';
-import { CalendarCheck2, Calendar, Plus, Trash2, Sparkles, UserCheck } from 'lucide-react';
+import { CalendarCheck2, Calendar, Plus, Trash2, Sparkles, UserCheck, CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
 
 export default function InterviewList() {
   const {
@@ -22,6 +22,73 @@ export default function InterviewList() {
   const { isAdmin, isHR } = usePermission();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const getRecommendationBadge = (recommendation) => {
+    switch (recommendation) {
+      case 'Pass':
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              padding: '0.25rem 0.65rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              backgroundColor: 'var(--success-bg)',
+              color: 'var(--success-text)',
+              border: '1px solid var(--success-border)',
+            }}
+          >
+            <CheckCircle2 size={13} />
+            Đề xuất: Đạt (Pass)
+          </span>
+        );
+      case 'Consider':
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              padding: '0.25rem 0.65rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              backgroundColor: 'var(--warning-bg)',
+              color: 'var(--warning-text)',
+              border: '1px solid var(--warning-border)',
+            }}
+          >
+            <AlertCircle size={13} />
+            Đề xuất: Cân nhắc (Consider)
+          </span>
+        );
+      case 'Reject':
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              padding: '0.25rem 0.65rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              backgroundColor: 'var(--danger-bg)',
+              color: 'var(--danger-text)',
+              border: '1px solid var(--danger-border)',
+            }}
+          >
+            <XCircle size={13} />
+            Đề xuất: Loại (Reject)
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
 
   const handleSave = async (payload) => {
     await createInterview(payload);
@@ -123,7 +190,9 @@ export default function InterviewList() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {item.recommendation && getRecommendationBadge(item.recommendation)}
+
                   {item.aiOverallScore !== null && item.aiOverallScore !== undefined && (
                     <Badge variant="success" icon={Sparkles}>
                       Điểm Tổng AI: {item.aiOverallScore}/10

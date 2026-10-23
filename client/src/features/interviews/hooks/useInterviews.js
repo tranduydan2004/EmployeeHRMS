@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { interviewApi } from '@/api/interviewApi';
 import axiosClient from '@/api/axiosClient';
 import { toast } from '@/components/Toast/useToastStore';
 
@@ -26,10 +27,32 @@ export function useInterview(id) {
   return useQuery({
     queryKey: ['interviews', id],
     queryFn: async () => {
-      const res = await axiosClient.get(`/Interviews/${id}`);
+      const res = await interviewApi.getById(id);
       return res.data;
     },
     enabled: !!id,
+  });
+}
+
+export function useQuestionEvaluations(interviewId, questionId) {
+  return useQuery({
+    queryKey: ['interviews', interviewId, 'questions', questionId, 'evaluations'],
+    queryFn: async () => {
+      const res = await interviewApi.getQuestionEvaluations(interviewId, questionId);
+      return res.data;
+    },
+    enabled: !!interviewId && !!questionId,
+  });
+}
+
+export function useInterviewEvaluations(interviewId) {
+  return useQuery({
+    queryKey: ['interviews', interviewId, 'evaluations'],
+    queryFn: async () => {
+      const res = await interviewApi.getInterviewEvaluations(interviewId);
+      return res.data;
+    },
+    enabled: !!interviewId,
   });
 }
 
@@ -38,7 +61,7 @@ export function useInterviewMutations() {
 
   const createInterviewMutation = useMutation({
     mutationFn: async (payload) => {
-      const res = await axiosClient.post('/Interviews', payload);
+      const res = await interviewApi.create(payload);
       return res.data;
     },
     onSuccess: () => {
@@ -49,7 +72,7 @@ export function useInterviewMutations() {
 
   const addQuestionMutation = useMutation({
     mutationFn: async ({ interviewId, payload }) => {
-      const res = await axiosClient.post(`/Interviews/${interviewId}/questions`, payload);
+      const res = await interviewApi.addQuestion(interviewId, payload);
       return res.data;
     },
     onSuccess: () => {
@@ -60,7 +83,7 @@ export function useInterviewMutations() {
 
   const deleteInterviewMutation = useMutation({
     mutationFn: async (id) => {
-      await axiosClient.delete(`/Interviews/${id}`);
+      await interviewApi.delete(id);
       return id;
     },
     onSuccess: () => {
@@ -71,9 +94,7 @@ export function useInterviewMutations() {
 
   const updateQuestionAnswerMutation = useMutation({
     mutationFn: async ({ interviewId, questionId, candidateAnswer }) => {
-      const res = await axiosClient.patch(`/Interviews/${interviewId}/questions/${questionId}/answer`, {
-        candidateAnswer,
-      });
+      const res = await interviewApi.updateQuestionAnswer(interviewId, questionId, candidateAnswer);
       return res.data;
     },
     onSuccess: (_, variables) => {
@@ -87,7 +108,7 @@ export function useInterviewMutations() {
 
   const completeInterviewMutation = useMutation({
     mutationFn: async ({ id, summary }) => {
-      const res = await axiosClient.patch(`/Interviews/${id}/complete`, { summary });
+      const res = await interviewApi.complete(id, summary);
       return res.data;
     },
     onSuccess: (_, variables) => {
@@ -99,16 +120,64 @@ export function useInterviewMutations() {
     },
   });
 
+  // --- Phase 4: Chỉnh sửa transcript ---
+  const updateTranscriptMutation = useMutation({
+    mutationFn: async ({ interviewId, questionId, transcript }) => {
+      const res = await interviewApi.updateTranscript(interviewId, questionId, transcript);
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      if (variables?.interviewId) {
+        queryClient.invalidateQueries({ queryKey: ['interviews', variables.interviewId] });
+        queryClient.invalidateQueries({
+          queryKey: ['interviews', variables.interviewId, 'questions', variables.questionId, 'evaluations'],
+        });
+      }
+      toast.success('Đã lưu bản bóc băng thành công!');
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể cập nhật bản bóc băng.';
+      toast.error(msg);
+    },
+  });
+
+  // --- Phase 4: Re-evaluate chấm điểm lại ---
+  const reevaluateMutation = useMutation({
+    mutationFn: async ({ interviewId, questionId }) => {
+      const res = await interviewApi.reevaluateAnswer(interviewId, questionId);
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      if (variables?.interviewId) {
+        queryClient.invalidateQueries({ queryKey: ['interviews', variables.interviewId] });
+        queryClient.invalidateQueries({
+          queryKey: ['interviews', variables.interviewId, 'questions', variables.questionId, 'evaluations'],
+        });
+      }
+      toast.success('Tác vụ chấm lại AI đã được đưa vào hàng đợi!');
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể kích hoạt chấm lại AI.';
+      toast.error(msg);
+    },
+  });
+
   return {
     createInterview: createInterviewMutation.mutateAsync,
     addQuestion: addQuestionMutation.mutateAsync,
     updateQuestionAnswer: updateQuestionAnswerMutation.mutateAsync,
     deleteInterview: deleteInterviewMutation.mutateAsync,
     completeInterview: completeInterviewMutation.mutateAsync,
+    updateTranscript: updateTranscriptMutation.mutateAsync,
+    reevaluateAnswer: reevaluateMutation.mutateAsync,
     isCreating: createInterviewMutation.isPending,
     isAddingQuestion: addQuestionMutation.isPending,
     isUpdatingAnswer: updateQuestionAnswerMutation.isPending,
     isDeleting: deleteInterviewMutation.isPending,
     isCompleting: completeInterviewMutation.isPending,
+    isUpdatingTranscript: updateTranscriptMutation.isPending,
+    isReevaluating: reevaluateMutation.isPending,
   };
 }

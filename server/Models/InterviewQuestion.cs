@@ -20,6 +20,13 @@ namespace EmployeeHRMS.Api.Models
         // Snapshot từ QuestionBankItem lúc phát link mời (null với câu hỏi HR thêm thủ công).
         // ScoringRubric phải là instance mới — EF Core không cho 2 owner dùng chung 1 owned instance.
         public ScoringRubric? ScoringRubric { get; set; }
+
+        /// <summary>
+        /// Phân loại câu hỏi (Technical, Behavioral, Situational, CulturalFit), snapshot từ QuestionBankItem lúc phát link mời.
+        /// Dùng cho LLM chấm điểm theo context và knockout rules (D3).
+        /// </summary>
+        public QuestionCategory? Category { get; set; }
+
         public int ThinkSeconds { get; set; } = 20;
         public int AnswerSeconds { get; set; } = 90;
         

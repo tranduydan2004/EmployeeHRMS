@@ -120,10 +120,8 @@ namespace EmployeeHRMS.Tests.Services
             // Assert
             isCreated.Should().BeTrue();
             result.Should().NotBeNull();
-            result.InterviewQuestionId.Should().Be(_validQuestionId);
-            result.AudioStorageKey.Should().Be(generatedStorageKey);
-            result.Status.Should().Be("Pending");
-            result.AudioDurationSeconds.Should().Be(45);
+            result.QuestionId.Should().Be(_validQuestionId);
+            result.Received.Should().BeTrue();
 
             // Verify validator was invoked
             _validatorMock.Verify(v => v.ValidateAudioFileAsync(mockFile), Times.Once);
@@ -180,7 +178,8 @@ namespace EmployeeHRMS.Tests.Services
         {
             // Arrange
             var interview = await _context.Interviews.FindAsync(_validInterviewId);
-            interview!.Complete();
+            interview!.MarkInProgress();
+            interview.Complete();
             await _context.SaveChangesAsync();
 
             var mockFile = CreateMockAudioFormFile("test.webm", "audio/webm", new byte[] { 1, 2, 3 });
@@ -234,8 +233,8 @@ namespace EmployeeHRMS.Tests.Services
             // Assert
             isCreated.Should().BeFalse();
             result.Should().NotBeNull();
-            result.InterviewQuestionId.Should().Be(_validQuestionId);
-            result.AudioStorageKey.Should().Be("audio/key.webm");
+            result.QuestionId.Should().Be(_validQuestionId);
+            result.Received.Should().BeTrue();
             _storageMock.Verify(s => s.SaveAudioAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
             _queueMock.Verify(q => q.EnqueueAsync(It.IsAny<AudioTranscriptionJob>(), It.IsAny<CancellationToken>()), Times.Never);
         }
@@ -337,8 +336,8 @@ namespace EmployeeHRMS.Tests.Services
 
             // Assert
             result.Should().NotBeNull();
-            result.InterviewQuestionId.Should().Be(_validQuestionId);
-            result.Status.Should().Be("Transcribing");
+            result.QuestionId.Should().Be(_validQuestionId);
+            result.Received.Should().BeTrue();
         }
 
         [Fact]
@@ -403,7 +402,10 @@ namespace EmployeeHRMS.Tests.Services
 
             // Assert
             isCreated.Should().BeTrue();
-            response.AudioDurationSeconds.Should().Be(65);
+            response.Received.Should().BeTrue();
+            var dbAnswer = await _context.InterviewAnswers.FirstOrDefaultAsync(a => a.InterviewQuestionId == _validQuestionId);
+            dbAnswer.Should().NotBeNull();
+            dbAnswer!.AudioDurationSeconds.Should().Be(65);
         }
 
         [Fact]

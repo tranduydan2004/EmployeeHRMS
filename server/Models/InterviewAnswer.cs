@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using EmployeeHRMS.Api.Models.ValueObjects;
 
 namespace EmployeeHRMS.Api.Models
 {
@@ -13,7 +15,7 @@ namespace EmployeeHRMS.Api.Models
 
     /// <summary>
     /// Lưu trữ audio response, metadata chống gian lận, kết quả bóc băng (Whisper),
-    /// và AI scoring cho từng câu hỏi phỏng vấn.
+    /// và lịch sử đánh giá rubric cho từng câu hỏi phỏng vấn.
     /// Trạng thái xử lý (Status) được kiểm soát nghiêm ngặt qua Domain Methods.
     /// </summary>
     public class InterviewAnswer
@@ -35,7 +37,7 @@ namespace EmployeeHRMS.Api.Models
         public string AudioStorageKey { get; set; } = string.Empty;
 
         /// <summary>
-        /// Thời lượng audio thực tế tính bằng giây.
+        /// Thời lượng audio thực tế tính bằng giây do client đo được.
         /// </summary>
         public int AudioDurationSeconds { get; set; }
 
@@ -69,28 +71,72 @@ namespace EmployeeHRMS.Api.Models
         public List<string> Flags { get; set; } = new();
 
         // ============================================================
-        // STT Output (Whisper API - Phase 3)
+        // STT Output (Whisper API - Phase 3 & 4)
         // ============================================================
         /// <summary>
-        /// Nội dung văn bản bóc băng từ giọng nói ứng viên.
+        /// Bản bóc băng gốc trực tiếp từ Whisper STT. Chỉ được ghi thông qua domain method CompleteTranscription (D6).
         /// </summary>
-        public string? Transcript { get; set; }
+        public string? Transcript { get; private set; }
+
+        /// <summary>
+        /// Bản bóc băng sau khi HR/Interviewer chỉnh sửa. Dùng làm đầu vào ưu tiên khi chấm lại (Re-evaluate).
+        /// </summary>
+        public string? EditedTranscript { get; private set; }
+
+        /// <summary>
+        /// ID của người dùng HR/Interviewer chỉnh sửa transcript lần gần nhất.
+        /// </summary>
+        public int? LastEditedByUserId { get; private set; }
+
+        /// <summary>
+        /// Thời điểm chỉnh sửa transcript lần gần nhất.
+        /// </summary>
+        public DateTime? LastEditedAt { get; private set; }
+
+        /// <summary>
+        /// Ngôn ngữ do Whisper API nhận diện từ giọng nói (từ verbose_json).
+        /// </summary>
+        public string? DetectedLanguage { get; private set; }
+
+        /// <summary>
+        /// Thời lượng thực tế của đoạn audio được Whisper bóc băng tính bằng giây (từ verbose_json).
+        /// Đáng tin cậy hơn thời lượng client gửi khi tính WPM (D2).
+        /// </summary>
+        public double? SttDurationSeconds { get; private set; }
 
         /// <summary>
         /// Dữ liệu JSON chứa word-level timestamps và verbose segments từ Whisper API.
         /// </summary>
         public string? TranscriptSegments { get; set; }
 
+        /// <summary>
+        /// Value Object lưu các chỉ số nhịp nói thuần túy (WPM, pause variation, v.v.) map sang cột jsonb.
+        /// </summary>
+        public SpeechMetrics? SpeechMetrics { get; private set; }
+
         // ============================================================
-        // AI Scoring & Feedback (Phase 4)
+        // AI Scoring & Feedback (Phase 4: Audit Trail via QuestionEvaluation)
         // ============================================================
+        [Obsolete("Đã chuyển sang bảng QuestionEvaluation theo kiến trúc audit trail. Không ghi mới vào cột này (D7).")]
         public decimal? AiScore { get; set; }
+
+        [Obsolete("Đã chuyển sang bảng QuestionEvaluation theo kiến trúc audit trail. Không ghi mới vào cột này (D7).")]
         public string? AiFeedback { get; set; }
+
+        /// <summary>
+        /// Danh sách lịch sử các lần đánh giá rubric cho câu trả lời này (Audit Trail).
+        /// </summary>
+        public ICollection<QuestionEvaluation> Evaluations { get; set; } = new List<QuestionEvaluation>();
 
         // ============================================================
         // Processing State Machine (Channels & Background Worker)
         // ============================================================
         public AudioProcessingStatus Status { get; private set; } = AudioProcessingStatus.Pending;
+
+        /// <summary>
+        /// Giai đoạn xảy ra lỗi khi Status = Failed (Transcription hay Scoring) (D8).
+        /// </summary>
+        public AudioProcessingStage? FailedStage { get; private set; }
 
         /// <summary>
         /// Timestamp bắt đầu xử lý bởi worker, dùng để phát hiện zombie jobs.
@@ -111,6 +157,26 @@ namespace EmployeeHRMS.Api.Models
         // ============================================================
 
         /// <summary>
+        /// Lấy văn bản bóc băng hiệu lực: ưu tiên EditedTranscript nếu có, ngược lại dùng Transcript gốc.
+        /// </summary>
+        public string? GetEffectiveTranscript() =>
+            !string.IsNullOrWhiteSpace(EditedTranscript) ? EditedTranscript : Transcript;
+
+        /// <summary>
+        /// HR/Interviewer chỉnh sửa bản bóc băng.
+        /// </summary>
+        public void UpdateTranscript(string editedTranscript, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(editedTranscript))
+                throw new ArgumentException("Edited transcript cannot be empty.", nameof(editedTranscript));
+
+            EditedTranscript = editedTranscript.Trim();
+            LastEditedByUserId = userId;
+            LastEditedAt = DateTime.UtcNow;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
         /// Worker nhận job và chuyển sang trạng thái bóc băng (Transcribing).
         /// </summary>
         public void StartTranscribing()
@@ -122,6 +188,7 @@ namespace EmployeeHRMS.Api.Models
 
             Status = AudioProcessingStatus.Transcribing;
             ProcessingStartedAt = DateTime.UtcNow;
+            FailedStage = null;
             ErrorMessage = null;
             UpdatedAt = DateTime.UtcNow;
         }
@@ -129,7 +196,12 @@ namespace EmployeeHRMS.Api.Models
         /// <summary>
         /// Hoàn tất Whisper STT, lưu kết quả transcript và chuyển sang giai đoạn Scoring (Phase 4).
         /// </summary>
-        public void CompleteTranscription(string transcript, string? transcriptSegments = null)
+        public void CompleteTranscription(
+            string transcript,
+            string? transcriptSegments = null,
+            string? detectedLanguage = null,
+            double? sttDurationSeconds = null,
+            SpeechMetrics? speechMetrics = null)
         {
             if (Status != AudioProcessingStatus.Transcribing)
             {
@@ -138,13 +210,56 @@ namespace EmployeeHRMS.Api.Models
 
             Transcript = transcript;
             TranscriptSegments = transcriptSegments;
+            DetectedLanguage = detectedLanguage;
+            SttDurationSeconds = sttDurationSeconds;
+            SpeechMetrics = speechMetrics;
             Status = AudioProcessingStatus.Scoring;
+            ProcessingStartedAt = DateTime.UtcNow;
+            FailedStage = null;
+            ErrorMessage = null;
             UpdatedAt = DateTime.UtcNow;
         }
 
         /// <summary>
-        /// Hoàn tất chấm điểm AI (Phase 4) và đánh dấu câu trả lời hoàn tất.
+        /// Bắt đầu giai đoạn chấm điểm (Scoring) cho câu trả lời.
         /// </summary>
+        public void StartScoring()
+        {
+            if (Status != AudioProcessingStatus.Completed &&
+                Status != AudioProcessingStatus.Failed &&
+                Status != AudioProcessingStatus.Scoring)
+            {
+                throw new InvalidOperationException($"Cannot start scoring from state '{Status}'.");
+            }
+
+            Status = AudioProcessingStatus.Scoring;
+            ProcessingStartedAt = DateTime.UtcNow;
+            FailedStage = null;
+            ErrorMessage = null;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Hoàn tất pipeline chấm điểm AI cho câu trả lời (D10: Completed được set ngay cả khi NotScorable).
+        /// </summary>
+        public void CompleteScoring()
+        {
+            if (Status != AudioProcessingStatus.Scoring)
+            {
+                throw new InvalidOperationException($"Cannot complete scoring from state '{Status}'. Expected '{AudioProcessingStatus.Scoring}'.");
+            }
+
+            Status = AudioProcessingStatus.Completed;
+            CompletedAt = DateTime.UtcNow;
+            FailedStage = null;
+            ErrorMessage = null;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Overload tương thích ngược cho các test và component cũ. Điểm chính thức lưu trong QuestionEvaluation.
+        /// </summary>
+        [Obsolete("Dùng CompleteScoring() không tham số; điểm và feedback lưu trong QuestionEvaluation (D7).")]
         public void CompleteScoring(decimal score, string? feedback = null)
         {
             if (Status != AudioProcessingStatus.Scoring)
@@ -152,19 +267,43 @@ namespace EmployeeHRMS.Api.Models
                 throw new InvalidOperationException($"Cannot complete scoring from state '{Status}'. Expected '{AudioProcessingStatus.Scoring}'.");
             }
 
+#pragma warning disable CS0618
             AiScore = score;
             AiFeedback = feedback;
+#pragma warning restore CS0618
             Status = AudioProcessingStatus.Completed;
             CompletedAt = DateTime.UtcNow;
+            FailedStage = null;
+            ErrorMessage = null;
             UpdatedAt = DateTime.UtcNow;
         }
 
         /// <summary>
-        /// Ghi nhận lỗi xử lý tại bất kỳ bước nào trong pipeline.
+        /// Ghi nhận lỗi xử lý kèm thông tin giai đoạn bị lỗi (D8).
+        /// </summary>
+        public void MarkFailed(AudioProcessingStage stage, string errorMessage)
+        {
+            Status = AudioProcessingStatus.Failed;
+            FailedStage = stage;
+            ErrorMessage = errorMessage;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Overload tương thích ngược cho TranscriptionWorker và TranscriptionRecoveryService.
         /// </summary>
         public void MarkFailed(string errorMessage)
         {
-            Status = AudioProcessingStatus.Failed;
+            MarkFailed(AudioProcessingStage.Transcription, errorMessage);
+        }
+
+        /// <summary>
+        /// Theo D9: Khi chấm lại thất bại nhưng trước đó câu trả lời đã có bản đánh giá hợp lệ,
+        /// trạng thái của InterviewAnswer quay về Completed để bảo toàn kết quả cũ.
+        /// </summary>
+        public void RevertToCompletedAfterFailedReevaluation(string errorMessage)
+        {
+            Status = AudioProcessingStatus.Completed;
             ErrorMessage = errorMessage;
             UpdatedAt = DateTime.UtcNow;
         }

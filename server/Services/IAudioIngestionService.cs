@@ -18,17 +18,17 @@ namespace EmployeeHRMS.Api.Services
         /// 5. Tạo InterviewAnswer record (Status = Pending)
         /// 6. Đẩy AudioTranscriptionJob vào Channel queue
         /// </summary>
-        Task<(AudioAnswerResponseDto Response, bool IsCreated)> ProcessAudioUploadAsync(
+        Task<(CandidateAudioAnswerResponseDto Response, bool IsCreated)> ProcessAudioUploadAsync(
             Guid inviteToken,
             int questionId,
             AudioAnswerUploadDto dto,
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Lấy thông tin và trạng thái xử lý của câu trả lời theo inviteToken và questionId.
-        /// Dùng cho frontend polling trạng thái xử lý STT & AI scoring.
+        /// Lấy trạng thái tiếp nhận của câu trả lời theo inviteToken và questionId ({ questionId, received }).
+        /// Tuyệt đối không để lộ điểm AI, transcript hay lỗi nội bộ cho ứng viên.
         /// </summary>
-        Task<AudioAnswerResponseDto> GetAnswerStatusAsync(
+        Task<CandidateAudioAnswerResponseDto> GetAnswerStatusAsync(
             Guid inviteToken,
             int questionId,
             CancellationToken cancellationToken = default);

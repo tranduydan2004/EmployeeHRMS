@@ -47,5 +47,44 @@ namespace EmployeeHRMS.Api.Services
         /// Ứng viên xác nhận bắt đầu phỏng vấn và đồng ý ghi âm (idempotent).
         /// </summary>
         Task<CandidateInterviewStartResponseDto> StartCandidateInterviewAsync(Guid inviteToken, CancellationToken cancellationToken = default);
+
+        // ============================================================
+        // AI Rubric Grading & Re-evaluation Pipeline (Phase 4)
+        // ============================================================
+
+        /// <summary>
+        /// HR/Interviewer chỉnh sửa bản bóc băng của câu trả lời.
+        /// </summary>
+        Task<InterviewAnswerDetailDto> UpdateTranscriptAsync(
+            int interviewId,
+            int questionId,
+            string editedTranscript,
+            int currentUserId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Kích hoạt chấm lại (Re-evaluate) cho câu trả lời sau khi sửa transcript hoặc cấu hình rubric.
+        /// Chuyển trạng thái sang Scoring và nạp job vào Channel queue.
+        /// </summary>
+        Task<ReevaluateResponseDto> ReevaluateAnswerAsync(
+            int interviewId,
+            int questionId,
+            int currentUserId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy toàn bộ lịch sử đánh giá (Audit Trail) của tất cả câu hỏi trong buổi phỏng vấn.
+        /// </summary>
+        Task<List<QuestionEvaluationResponseDto>> GetInterviewEvaluationsAsync(
+            int interviewId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy toàn bộ lịch sử đánh giá (Audit Trail) của một câu hỏi cụ thể.
+        /// </summary>
+        Task<List<QuestionEvaluationResponseDto>> GetQuestionEvaluationsAsync(
+            int interviewId,
+            int questionId,
+            CancellationToken cancellationToken = default);
     }
 }

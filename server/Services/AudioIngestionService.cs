@@ -50,7 +50,7 @@ namespace EmployeeHRMS.Api.Services
             _audioInterviewOptions = audioInterviewOptions?.Value ?? new AudioInterviewOptions();
         }
 
-        public async Task<(AudioAnswerResponseDto Response, bool IsCreated)> ProcessAudioUploadAsync(
+        public async Task<(CandidateAudioAnswerResponseDto Response, bool IsCreated)> ProcessAudioUploadAsync(
             Guid inviteToken,
             int questionId,
             AudioAnswerUploadDto dto,
@@ -129,7 +129,7 @@ namespace EmployeeHRMS.Api.Services
             {
                 _logger.LogInformation("Audio ingestion duplicate hit: Question #{QuestionId} already has an answer #{AnswerId}. Returning existing answer idempotently.",
                     questionId, existingAnswer.Id);
-                return (MapToResponseDto(existingAnswer), false);
+                return (MapToCandidateResponseDto(existingAnswer), false);
             }
 
             // 7. Lưu trữ audio vào IAudioStorageService
@@ -209,7 +209,7 @@ namespace EmployeeHRMS.Api.Services
                         _logger.LogError(cleanupEx, "Failed to clean up duplicate audio file: {StorageKey}", storageKey);
                     }
 
-                    return (MapToResponseDto(concurrentAnswer), false);
+                    return (MapToCandidateResponseDto(concurrentAnswer), false);
                 }
 
                 // Nếu là lỗi DB khác: xóa file audio đã lưu và rethrow
@@ -228,7 +228,7 @@ namespace EmployeeHRMS.Api.Services
             }
 
             // 11. Trả về DTO kèm cờ isCreated = true (HTTP 201)
-            return (MapToResponseDto(answer), true);
+            return (MapToCandidateResponseDto(answer), true);
         }
 
         private async Task TryCompensatingDeleteAsync(string storageKey)
@@ -243,26 +243,16 @@ namespace EmployeeHRMS.Api.Services
             }
         }
 
-        private static AudioAnswerResponseDto MapToResponseDto(InterviewAnswer answer)
+        private static CandidateAudioAnswerResponseDto MapToCandidateResponseDto(InterviewAnswer answer)
         {
-            return new AudioAnswerResponseDto
+            return new CandidateAudioAnswerResponseDto
             {
-                Id = answer.Id,
-                InterviewQuestionId = answer.InterviewQuestionId,
-                AudioStorageKey = answer.AudioStorageKey,
-                AudioDurationSeconds = answer.AudioDurationSeconds,
-                AudioMimeType = answer.AudioMimeType,
-                AudioFileSize = answer.AudioFileSize,
-                Status = answer.Status.ToString(),
-                Transcript = answer.Transcript,
-                AiScore = answer.AiScore,
-                ErrorMessage = answer.ErrorMessage,
-                CreatedAt = answer.CreatedAt,
-                CompletedAt = answer.CompletedAt
+                QuestionId = answer.InterviewQuestionId,
+                Received = true
             };
         }
 
-        public async Task<AudioAnswerResponseDto> GetAnswerStatusAsync(
+        public async Task<CandidateAudioAnswerResponseDto> GetAnswerStatusAsync(
             Guid inviteToken,
             int questionId,
             CancellationToken cancellationToken = default)
@@ -285,21 +275,7 @@ namespace EmployeeHRMS.Api.Services
                 throw new NotFoundException($"Chưa có câu trả lời cho câu hỏi #{questionId}.");
             }
 
-            return new AudioAnswerResponseDto
-            {
-                Id = answer.Id,
-                InterviewQuestionId = answer.InterviewQuestionId,
-                AudioStorageKey = answer.AudioStorageKey,
-                AudioDurationSeconds = answer.AudioDurationSeconds,
-                AudioMimeType = answer.AudioMimeType,
-                AudioFileSize = answer.AudioFileSize,
-                Status = answer.Status.ToString(),
-                Transcript = answer.Transcript,
-                AiScore = answer.AiScore,
-                ErrorMessage = answer.ErrorMessage,
-                CreatedAt = answer.CreatedAt,
-                CompletedAt = answer.CompletedAt
-            };
+            return MapToCandidateResponseDto(answer);
         }
     }
 }

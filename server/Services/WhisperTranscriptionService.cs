@@ -226,7 +226,8 @@ namespace EmployeeHRMS.Api.Services
                     id = s.Id,
                     start = s.StartTime.TotalSeconds,
                     end = s.EndTime.TotalSeconds,
-                    text = s.Text
+                    text = s.Text,
+                    noSpeechProbability = s.NoSpeechProbability
                 };
             }
             return segments;

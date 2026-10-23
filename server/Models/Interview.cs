@@ -45,6 +45,11 @@ namespace EmployeeHRMS.Api.Models
         public decimal? AiOverallScore { get; private set; }
         public string? AiOverallSummary { get; private set; }
 
+        /// <summary>
+        /// Đề xuất kết quả phỏng vấn (Pass, Consider, Reject) do code quy định dựa trên ngưỡng và knockout rules (Phase 4).
+        /// </summary>
+        public InterviewRecommendation? Recommendation { get; private set; }
+
         public ICollection<InterviewQuestion> Questions { get; set; } = new List<InterviewQuestion>();
         public ICollection<InterviewAnswer> Answers { get; set; } = new List<InterviewAnswer>();
 
@@ -58,11 +63,39 @@ namespace EmployeeHRMS.Api.Models
             Status = InterviewStatus.Scheduled;
         }
 
-        /// <summary>Hoàn thành phỏng vấn với summary từ AI.</summary>
-        public void Complete(string? summary = null)
+        /// <summary>
+        /// Hoàn thành phỏng vấn và ghi nhận kết quả tổng hợp.
+        /// Theo D4: Complete() chỉ hợp lệ từ InProgress hoặc Expired; gọi lần hai là no-op (idempotent);
+        /// ném exception nếu gọi từ Scheduled hoặc Cancelled.
+        /// </summary>
+        public void Complete(string? summary = null, decimal? overallScore = null, InterviewRecommendation? recommendation = null)
         {
+            if (Status == InterviewStatus.Completed)
+                return; // Idempotent no-op
+
+            if (Status != InterviewStatus.InProgress && Status != InterviewStatus.Expired)
+            {
+                throw new BusinessRuleException(
+                    $"Cannot complete an interview in '{Status}' state. Only InProgress or Expired interviews can be completed.");
+            }
+
             Status = InterviewStatus.Completed;
-            AiOverallSummary = summary;
+            if (summary != null) AiOverallSummary = summary;
+            if (overallScore.HasValue) AiOverallScore = overallScore;
+            if (recommendation.HasValue) Recommendation = recommendation;
+        }
+
+        /// <summary>
+        /// Cập nhật kết quả tổng hợp điểm và đề xuất (dùng trong bước aggregation hoặc khi re-evaluate).
+        /// </summary>
+        public void SetAggregationResult(decimal? overallScore, InterviewRecommendation? recommendation, string? summary = null)
+        {
+            AiOverallScore = overallScore;
+            Recommendation = recommendation;
+            if (summary != null)
+            {
+                AiOverallSummary = summary;
+            }
         }
 
         /// <summary>Hủy buổi phỏng vấn.</summary>

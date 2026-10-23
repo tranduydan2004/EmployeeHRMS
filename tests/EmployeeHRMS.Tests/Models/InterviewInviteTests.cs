@@ -42,6 +42,7 @@ namespace EmployeeHRMS.Tests.Models
         public void Invite_CompletedInterview_ShouldThrow()
         {
             var interview = CreateInvited();
+            interview.MarkInProgress();
             interview.Complete();
 
             var act = () => interview.Invite(TimeSpan.FromDays(1));
@@ -82,7 +83,10 @@ namespace EmployeeHRMS.Tests.Models
             var interview = CreateInvited();
             switch (terminal)
             {
-                case InterviewStatus.Completed: interview.Complete(); break;
+                case InterviewStatus.Completed:
+                    interview.MarkInProgress();
+                    interview.Complete();
+                    break;
                 case InterviewStatus.Cancelled: interview.Cancel(); break;
                 case InterviewStatus.Expired: interview.MarkExpired(); break;
             }
@@ -120,6 +124,7 @@ namespace EmployeeHRMS.Tests.Models
         public void MarkExpired_FromCompleted_ShouldThrow()
         {
             var interview = CreateInvited();
+            interview.MarkInProgress();
             interview.Complete();
 
             var act = () => interview.MarkExpired();
