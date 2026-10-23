@@ -251,6 +251,9 @@ namespace EmployeeHRMS.Api.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<int?>("Recommendation")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("ScheduledDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -306,8 +309,18 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DetectedLanguage")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("EditedTranscript")
+                        .HasColumnType("text");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
+
+                    b.Property<int?>("FailedStage")
+                        .HasColumnType("integer");
 
                     b.Property<List<string>>("Flags")
                         .IsRequired()
@@ -321,6 +334,12 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Property<int>("InterviewQuestionId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("LastEditedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("LastEditedByUserId")
+                        .HasColumnType("integer");
+
                     b.Property<double>("OutOfFocusDurationSeconds")
                         .HasColumnType("double precision");
 
@@ -332,6 +351,9 @@ namespace EmployeeHRMS.Api.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<double?>("SttDurationSeconds")
+                        .HasColumnType("double precision");
 
                     b.Property<int>("TabSwitchCount")
                         .HasColumnType("integer");
@@ -377,6 +399,9 @@ namespace EmployeeHRMS.Api.Migrations
 
                     b.Property<string>("CandidateAnswer")
                         .HasColumnType("text");
+
+                    b.Property<int?>("Category")
+                        .HasColumnType("integer");
 
                     b.Property<int>("InterviewId")
                         .HasColumnType("integer");
@@ -575,6 +600,98 @@ namespace EmployeeHRMS.Api.Migrations
                         });
                 });
 
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.QuestionEvaluation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Analysis")
+                        .HasColumnType("text");
+
+                    b.Property<List<string>>("Concerns")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ConfirmedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("EvaluatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<List<string>>("EvidenceQuotes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<int>("InterviewAnswerId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<int?>("Level")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal?>("Score")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<List<string>>("Strengths")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<string>("TranscriptSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InterviewAnswerId")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\" = true");
+
+                    b.ToTable("QuestionEvaluations");
+                });
+
             modelBuilder.Entity("EmployeeHRMS.Api.Models.RefreshToken", b =>
                 {
                     b.Property<int>("Id")
@@ -698,9 +815,50 @@ namespace EmployeeHRMS.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.OwnsOne("EmployeeHRMS.Api.Models.ValueObjects.SpeechMetrics", "SpeechMetrics", b1 =>
+                        {
+                            b1.Property<int>("InterviewAnswerId")
+                                .HasColumnType("integer");
+
+                            b1.Property<double>("AveragePauseSeconds")
+                                .HasColumnType("double precision");
+
+                            b1.Property<DateTime>("CalculatedAt")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<bool>("IsRhythmMonotonous")
+                                .HasColumnType("boolean");
+
+                            b1.Property<int>("PauseCount")
+                                .HasColumnType("integer");
+
+                            b1.Property<double>("PauseVariationCv")
+                                .HasColumnType("double precision");
+
+                            b1.Property<double>("SpeechDurationSeconds")
+                                .HasColumnType("double precision");
+
+                            b1.Property<int>("WordCount")
+                                .HasColumnType("integer");
+
+                            b1.Property<double>("Wpm")
+                                .HasColumnType("double precision");
+
+                            b1.HasKey("InterviewAnswerId");
+
+                            b1.ToTable("InterviewAnswers");
+
+                            b1.ToJson("SpeechMetrics");
+
+                            b1.WithOwner()
+                                .HasForeignKey("InterviewAnswerId");
+                        });
+
                     b.Navigation("Interview");
 
                     b.Navigation("InterviewQuestion");
+
+                    b.Navigation("SpeechMetrics");
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.InterviewQuestion", b =>
@@ -876,6 +1034,17 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Navigation("ScoringRubric");
                 });
 
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.QuestionEvaluation", b =>
+                {
+                    b.HasOne("EmployeeHRMS.Api.Models.InterviewAnswer", "InterviewAnswer")
+                        .WithMany("Evaluations")
+                        .HasForeignKey("InterviewAnswerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("InterviewAnswer");
+                });
+
             modelBuilder.Entity("EmployeeHRMS.Api.Models.RefreshToken", b =>
                 {
                     b.HasOne("EmployeeHRMS.Api.Models.ApplicationUser", "User")
@@ -909,6 +1078,11 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Navigation("Answers");
 
                     b.Navigation("Questions");
+                });
+
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.InterviewAnswer", b =>
+                {
+                    b.Navigation("Evaluations");
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.InterviewQuestion", b =>

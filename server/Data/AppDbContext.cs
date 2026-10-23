@@ -24,6 +24,7 @@ namespace EmployeeHRMS.Api.Data
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<QuestionBankItem> QuestionBankItems { get; set; }
         public DbSet<InterviewAnswer> InterviewAnswers { get; set; }
+        public DbSet<QuestionEvaluation> QuestionEvaluations { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -218,6 +219,8 @@ namespace EmployeeHRMS.Api.Data
                     b.ToJson();
                 });
 
+                entity.Property(q => q.Category).HasConversion<int>();
+
                 entity.Property(q => q.ThinkSeconds)
                     .IsRequired()
                     .HasDefaultValue(20);
@@ -237,6 +240,7 @@ namespace EmployeeHRMS.Api.Data
             {
                 entity.HasIndex(i => i.InviteToken).IsUnique();
                 entity.Property(i => i.InviteToken).HasDefaultValueSql("gen_random_uuid()");
+                entity.Property(i => i.Recommendation).HasConversion<int>();
             });
 
             modelBuilder.Entity<InterviewAnswer>(entity =>
@@ -247,9 +251,51 @@ namespace EmployeeHRMS.Api.Data
                 entity.Property(a => a.TranscriptSegments).HasColumnType("jsonb");
                 entity.Property(a => a.AiScore).HasPrecision(5, 2);
                 entity.Property(a => a.Status).HasConversion<int>();
+                entity.Property(a => a.FailedStage).HasConversion<int>();
+                entity.Property(a => a.DetectedLanguage).HasMaxLength(20);
+
+                entity.OwnsOne(a => a.SpeechMetrics, b =>
+                {
+                    b.ToJson();
+                });
+
                 entity.Property(a => a.Flags)
                     .HasColumnType("text[]")
                     .HasDefaultValueSql("'{}'::text[]");
+            });
+
+            modelBuilder.Entity<QuestionEvaluation>(entity =>
+            {
+                entity.HasOne(e => e.InterviewAnswer)
+                    .WithMany(a => a.Evaluations)
+                    .HasForeignKey(e => e.InterviewAnswerId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // Partial Unique Index: Mỗi InterviewAnswer chỉ có tối đa 1 bản ghi IsActive = true
+                entity.HasIndex(e => e.InterviewAnswerId)
+                    .IsUnique()
+                    .HasFilter("\"IsActive\" = true");
+
+                entity.Property(e => e.Score).HasPrecision(5, 2);
+                entity.Property(e => e.Level).HasConversion<int>();
+                entity.Property(e => e.Outcome).HasConversion<int>();
+
+                entity.Property(e => e.EvidenceQuotes)
+                    .HasColumnType("text[]")
+                    .HasDefaultValueSql("'{}'::text[]");
+
+                entity.Property(e => e.Strengths)
+                    .HasColumnType("text[]")
+                    .HasDefaultValueSql("'{}'::text[]");
+
+                entity.Property(e => e.Concerns)
+                    .HasColumnType("text[]")
+                    .HasDefaultValueSql("'{}'::text[]");
+
+                entity.Property(e => e.ModelName).HasMaxLength(100).IsRequired();
+                entity.Property(e => e.PromptVersion).HasMaxLength(50).IsRequired();
+                entity.Property(e => e.Reason).HasMaxLength(100);
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
             });
 
             // ============================================================
