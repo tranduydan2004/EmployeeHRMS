@@ -269,6 +269,10 @@ namespace EmployeeHRMS.Api
                 builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.OpenAiSettings.SectionName));
             builder.Services.Configure<EmployeeHRMS.Api.Configuration.AudioInterviewOptions>(
                 builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.AudioInterviewOptions.SectionName));
+            builder.Services.Configure<EmployeeHRMS.Api.Configuration.SpeechMetricsOptions>(
+                builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.SpeechMetricsOptions.SectionName));
+            builder.Services.Configure<EmployeeHRMS.Api.Configuration.ScoringOptions>(
+                builder.Configuration.GetSection(EmployeeHRMS.Api.Configuration.ScoringOptions.SectionName));
             builder.Services.AddSingleton(sp =>
             {
                 var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmployeeHRMS.Api.Configuration.OpenAiSettings>>().Value;
@@ -278,6 +282,7 @@ namespace EmployeeHRMS.Api
             });
             builder.Services.AddScoped<EmployeeHRMS.Api.Services.IJdGenerationService, EmployeeHRMS.Api.Services.OpenAiJdGenerationService>();
             builder.Services.AddScoped<EmployeeHRMS.Api.Services.IQuestionBankService, EmployeeHRMS.Api.Services.OpenAiQuestionBankService>();
+            builder.Services.AddScoped<EmployeeHRMS.Api.Services.IOpenAiScoringService, EmployeeHRMS.Api.Services.OpenAiScoringService>();
 
             // Business services — Interface → Implementation (DI pattern)
             builder.Services.AddScoped<IDepartmentService, DepartmentService>();

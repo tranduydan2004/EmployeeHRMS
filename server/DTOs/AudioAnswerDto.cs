@@ -34,7 +34,18 @@ namespace EmployeeHRMS.Api.DTOs
         public List<string>? Flags { get; set; }
     }
 
+    /// <summary>
+    /// DTO an toàn trả về cho ứng viên sau khi upload audio hoặc polling trạng thái.
+    /// Tuyệt đối KHÔNG chứa AiScore, AiFeedback, Transcript, ErrorMessage, Flags hay Rubric.
+    /// </summary>
+    public class CandidateAudioAnswerResponseDto
+    {
+        public int QuestionId { get; set; }
+        public bool Received { get; set; }
+    }
+
     // === DTO trả về sau khi upload audio thành công hoặc query status ===
+    [Obsolete("Tuyệt đối không dùng cho endpoint ẩn danh của ứng viên để tránh lộ điểm hay dữ liệu nội bộ. Dùng CandidateAudioAnswerResponseDto.")]
     public class AudioAnswerResponseDto
     {
         public int Id { get; set; }

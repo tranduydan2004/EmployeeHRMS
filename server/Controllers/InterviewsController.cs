@@ -3,6 +3,7 @@ using EmployeeHRMS.Api.Authorization;
 using EmployeeHRMS.Api.DTOs;
 using EmployeeHRMS.Api.DTOs.Common;
 using EmployeeHRMS.Api.Exceptions;
+using EmployeeHRMS.Api.Extensions;
 using EmployeeHRMS.Api.Models;
 using EmployeeHRMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -279,7 +280,8 @@ namespace EmployeeHRMS.Api.Controllers
         /// Ứng viên nộp file ghi âm trả lời (multipart/form-data) kèm telemetry chống gian lận.
         /// Public access với InviteToken bảo mật (chống IDOR).
         /// Tiếp nhận audio, validate 4 lớp, lưu storage, lưu DB (Pending), và enqueue vào Channel queue.
-        /// Trả về 201 Created lần đầu, hoặc 200 OK idempotent nếu câu trả lời đã tồn tại.
+        /// Trả về 201 Created lần đầu, hoặc 200 OK idempotent ({ questionId, received }).
+        /// Tuyệt đối KHÔNG trả về transcript, điểm AI, hoặc thông tin nội bộ.
         /// </summary>
         [HttpPost("{inviteToken:guid}/answers/{questionId:int}")]
         [AllowAnonymous]
@@ -310,7 +312,8 @@ namespace EmployeeHRMS.Api.Controllers
 
         /// <summary>
         /// GET: api/interviews/{inviteToken}/answers/{questionId}
-        /// Endpoint polling trạng thái xử lý audio của câu trả lời (Pending -> Transcribing -> Scoring -> Completed / Failed).
+        /// Endpoint polling kiểm tra trạng thái tiếp nhận audio của câu hỏi ({ questionId, received }).
+        /// Tuyệt đối KHÔNG trả về transcript, điểm số AI, lỗi xử lý hay rubric.
         /// </summary>
         [HttpGet("{inviteToken:guid}/answers/{questionId:int}")]
         [AllowAnonymous]
@@ -366,6 +369,100 @@ namespace EmployeeHRMS.Api.Controllers
             CancellationToken cancellationToken)
         {
             var result = await recoveryService.RecoverZombieJobsAsync(isStartup: false, cancellationToken);
+            return Ok(result);
+        }
+
+        // ============================================================
+        // AI Rubric Grading & Re-evaluation Pipeline (Phase 4)
+        // ============================================================
+
+        /// <summary>
+        /// PUT: api/interviews/{id}/answers/{questionId}/transcript
+        /// HR/Interviewer chỉnh sửa bản bóc băng của câu trả lời.
+        /// </summary>
+        [HttpPut("{id:int}/answers/{questionId:int}/transcript")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> UpdateTranscript(
+            int id,
+            int questionId,
+            [FromBody] UpdateTranscriptDto dto,
+            CancellationToken cancellationToken)
+        {
+            var interview = await _interviewService.GetEntityByIdAsync(id)
+                ?? throw new NotFoundException("Interview", id);
+
+            var authResult = await _authorizationService.AuthorizeAsync(User, interview, ResourceOperations.Evaluate);
+            if (!authResult.Succeeded) return Forbid();
+
+            var currentUserId = User.GetUserId() ?? 0;
+            var result = await _interviewService.UpdateTranscriptAsync(
+                id, questionId, dto.Transcript, currentUserId, cancellationToken);
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// POST: api/interviews/{id}/answers/{questionId}/re-evaluate
+        /// Kích hoạt AI chấm lại theo rubric cho câu trả lời (sau khi sửa transcript hoặc cập nhật barem).
+        /// </summary>
+        [HttpPost("{id:int}/answers/{questionId:int}/re-evaluate")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> ReevaluateAnswer(
+            int id,
+            int questionId,
+            CancellationToken cancellationToken)
+        {
+            var interview = await _interviewService.GetEntityByIdAsync(id)
+                ?? throw new NotFoundException("Interview", id);
+
+            var authResult = await _authorizationService.AuthorizeAsync(User, interview, ResourceOperations.Evaluate);
+            if (!authResult.Succeeded) return Forbid();
+
+            var currentUserId = User.GetUserId() ?? 0;
+            var result = await _interviewService.ReevaluateAnswerAsync(
+                id, questionId, currentUserId, cancellationToken);
+
+            return Accepted(result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/{id}/evaluations
+        /// Lấy toàn bộ lịch sử đánh giá (Audit Trail) cho tất cả câu hỏi của buổi phỏng vấn.
+        /// </summary>
+        [HttpGet("{id:int}/evaluations")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> GetInterviewEvaluations(
+            int id,
+            CancellationToken cancellationToken)
+        {
+            var interview = await _interviewService.GetEntityByIdAsync(id)
+                ?? throw new NotFoundException("Interview", id);
+
+            var authResult = await _authorizationService.AuthorizeAsync(User, interview, ResourceOperations.Read);
+            if (!authResult.Succeeded) return Forbid();
+
+            var result = await _interviewService.GetInterviewEvaluationsAsync(id, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/{id}/answers/{questionId}/evaluations
+        /// Lấy lịch sử đánh giá (Audit Trail) của riêng một câu hỏi.
+        /// </summary>
+        [HttpGet("{id:int}/answers/{questionId:int}/evaluations")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> GetQuestionEvaluations(
+            int id,
+            int questionId,
+            CancellationToken cancellationToken)
+        {
+            var interview = await _interviewService.GetEntityByIdAsync(id)
+                ?? throw new NotFoundException("Interview", id);
+
+            var authResult = await _authorizationService.AuthorizeAsync(User, interview, ResourceOperations.Read);
+            if (!authResult.Succeeded) return Forbid();
+
+            var result = await _interviewService.GetQuestionEvaluationsAsync(id, questionId, cancellationToken);
             return Ok(result);
         }
     }

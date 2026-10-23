@@ -23,6 +23,7 @@ namespace EmployeeHRMS.Tests.Services
         private readonly InterviewService _service;
         private readonly Mock<IHttpContextAccessor> _httpContextAccessor;
         private readonly Mock<IEmailService> _emailServiceMock;
+        private readonly Mock<IAudioTranscriptionQueue> _queueMock;
         private readonly EventLogger _eventLogger;
         private readonly AudioInterviewOptions _options;
 
@@ -37,6 +38,7 @@ namespace EmployeeHRMS.Tests.Services
             _eventLogger = new EventLogger(mockLogger.Object);
             _httpContextAccessor = new Mock<IHttpContextAccessor>();
             _emailServiceMock = new Mock<IEmailService>();
+            _queueMock = new Mock<IAudioTranscriptionQueue>();
 
             _options = new AudioInterviewOptions
             {
@@ -53,7 +55,8 @@ namespace EmployeeHRMS.Tests.Services
                 _eventLogger,
                 _httpContextAccessor.Object,
                 Options.Create(_options),
-                _emailServiceMock.Object);
+                _emailServiceMock.Object,
+                _queueMock.Object);
         }
 
         private void SetupUserContext(string role, int userId)
@@ -291,9 +294,17 @@ namespace EmployeeHRMS.Tests.Services
                 Id = 102,
                 JobPostingId = 1,
                 Question = "Explain EF Core tracking vs no-tracking",
+                Category = QuestionCategory.Technical,
                 OrderIndex = 2,
                 ThinkSeconds = 30,
-                AnswerSeconds = 90
+                AnswerSeconds = 90,
+                ScoringRubric = new ScoringRubric
+                {
+                    Excellent = "Detailed knowledge of change tracker",
+                    Good = "Understands AsNoTracking benefit",
+                    Acceptable = "Basic knowledge",
+                    Poor = "No understanding"
+                }
             });
 
             _context.JobPostings.Add(job);
@@ -363,7 +374,8 @@ namespace EmployeeHRMS.Tests.Services
             var q2 = dbInterview.Questions.First(q => q.OrderIndex == 2);
             q2.ThinkSeconds.Should().Be(30);
             q2.AnswerSeconds.Should().Be(90);
-            q2.ScoringRubric.Should().BeNull();
+            q2.Category.Should().Be(QuestionCategory.Technical);
+            q2.ScoringRubric.Should().NotBeNull();
 
             // Verify email sent
             _emailServiceMock.Verify(m => m.SendEmailAsync(
@@ -371,6 +383,60 @@ namespace EmployeeHRMS.Tests.Services
                 It.Is<string>(s => s.Contains(".NET Senior Engineer")),
                 It.Is<string>(b => b.Contains(result.InviteUrl))),
                 Times.Once);
+        }
+
+        [Fact]
+        public async Task CreateInviteAsync_WhenQuestionMissingRubric_ShouldThrowBusinessRuleException()
+        {
+            // Arrange
+            var dept = new Department { Name = "HR" };
+            _context.Departments.Add(dept);
+
+            var job = new JobPosting
+            {
+                Title = "Fullstack Engineer",
+                Department = dept,
+                Status = JobPostingStatus.Approved
+            };
+
+            // Câu hỏi 1 có rubric
+            job.QuestionBankItems.Add(new QuestionBankItem
+            {
+                Question = "Tell us about React",
+                OrderIndex = 1,
+                ScoringRubric = new ScoringRubric
+                {
+                    Excellent = "E",
+                    Good = "G",
+                    Acceptable = "A",
+                    Poor = "P"
+                }
+            });
+
+            // Câu hỏi 2 thiếu rubric
+            job.QuestionBankItems.Add(new QuestionBankItem
+            {
+                Question = "Tell us about Docker",
+                OrderIndex = 2,
+                ScoringRubric = null
+            });
+
+            _context.JobPostings.Add(job);
+
+            var candidate = new Candidate { FullName = "Bob", Email = "bob@example.com", Phone = "123", ResumeUrl = "" };
+            _context.Candidates.Add(candidate);
+
+            var app = new Application { JobPosting = job, Candidate = candidate };
+            app.SetInitialStatus();
+            _context.Applications.Add(app);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var act = () => _service.CreateInviteAsync(app.Id);
+
+            // Assert (D3)
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*chưa có đầy đủ Scoring Rubric 4 mức*");
         }
 
         [Fact]
@@ -402,7 +468,7 @@ namespace EmployeeHRMS.Tests.Services
         public async Task GetCandidateSessionAsync_WhenCompleted_ShouldThrowConflictException()
         {
             // Arrange
-            var interview = await CreateTestInterviewAsync(i => i.Complete());
+            var interview = await CreateTestInterviewAsync(i => { i.MarkInProgress(); i.Complete(); });
 
             // Act
             var act = () => _service.GetCandidateSessionAsync(interview.InviteToken);
@@ -578,7 +644,7 @@ namespace EmployeeHRMS.Tests.Services
         public async Task StartCandidateInterviewAsync_WhenCompleted_ShouldThrowConflictException()
         {
             // Arrange
-            var interview = await CreateTestInterviewAsync(i => i.Complete());
+            var interview = await CreateTestInterviewAsync(i => { i.MarkInProgress(); i.Complete(); });
 
             // Act
             var act = () => _service.StartCandidateInterviewAsync(interview.InviteToken);
@@ -586,6 +652,314 @@ namespace EmployeeHRMS.Tests.Services
             // Assert
             await act.Should().ThrowAsync<ConflictException>()
                 .WithMessage("*đã hoàn thành*");
+        }
+
+        // ============================================================
+        // AI Rubric Grading & Re-evaluation Tests (Phase 4 Step 6)
+        // ============================================================
+
+        [Fact]
+        public async Task UpdateTranscriptAsync_WhenValid_UpdatesEditedTranscriptAndLastEditedMetadata()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Tell me about your experience",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/test.webm",
+                AudioDurationSeconds = 45
+            };
+            answer.StartTranscribing();
+            answer.CompleteTranscription("Transcript goc tu Whisper");
+            answer.CompleteScoring();
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var result = await _service.UpdateTranscriptAsync(
+                interview.Id, question.Id, "Bản bóc băng đã được HR hiệu đính", 42);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.Transcript.Should().Be("Transcript goc tu Whisper");
+            result.EditedTranscript.Should().Be("Bản bóc băng đã được HR hiệu đính");
+            result.EffectiveTranscript.Should().Be("Bản bóc băng đã được HR hiệu đính");
+            result.LastEditedByUserId.Should().Be(42);
+            result.LastEditedAt.Should().NotBeNull();
+
+            var dbAnswer = await _context.InterviewAnswers.FindAsync(answer.Id);
+            dbAnswer!.EditedTranscript.Should().Be("Bản bóc băng đã được HR hiệu đính");
+            dbAnswer.LastEditedByUserId.Should().Be(42);
+        }
+
+        [Fact]
+        public async Task UpdateTranscriptAsync_WhenTranscriptIsEmpty_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Tell me about your experience",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/test.webm"
+            };
+            answer.StartTranscribing();
+            answer.CompleteTranscription("Goc");
+            answer.CompleteScoring();
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act & Assert
+            var act = () => _service.UpdateTranscriptAsync(interview.Id, question.Id, "   ", 42);
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*không được để trống*");
+        }
+
+        [Fact]
+        public async Task UpdateTranscriptAsync_WhenAnswerIsTranscribing_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Q",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/test.webm"
+            };
+            answer.StartTranscribing();
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act & Assert
+            var act = () => _service.UpdateTranscriptAsync(interview.Id, question.Id, "Edited text", 42);
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*đang trong quá trình bóc băng*");
+        }
+
+        [Fact]
+        public async Task UpdateTranscriptAsync_WhenAnswerIsCurrentlyScoring_ThrowsConflictException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Q",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/test.webm"
+            };
+            answer.StartTranscribing();
+            answer.CompleteTranscription("Goc");
+            // Status is now Scoring
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act & Assert
+            var act = () => _service.UpdateTranscriptAsync(interview.Id, question.Id, "Edited text", 42);
+            await act.Should().ThrowAsync<ConflictException>()
+                .WithMessage("*Đang trong tiến trình chấm điểm*");
+        }
+
+        [Fact]
+        public async Task ReevaluateAnswerAsync_WhenValidCompletedAnswer_TransitionsToScoringAndEnqueuesJob()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Tell me about SOLID",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/solid.webm"
+            };
+            answer.StartTranscribing();
+            answer.CompleteTranscription("Ban transcript hop le");
+            answer.CompleteScoring();
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var result = await _service.ReevaluateAnswerAsync(interview.Id, question.Id, 99);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.InterviewAnswerId.Should().Be(answer.Id);
+            result.QuestionId.Should().Be(question.Id);
+            result.Status.Should().Be("Scoring");
+            result.Message.Should().Contain("hàng đợi xử lý");
+
+            var dbAnswer = await _context.InterviewAnswers.FindAsync(answer.Id);
+            dbAnswer!.Status.Should().Be(AudioProcessingStatus.Scoring);
+
+            _queueMock.Verify(q => q.EnqueueAsync(
+                It.Is<AudioTranscriptionJob>(j => j.InterviewAnswerId == answer.Id),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task ReevaluateAnswerAsync_WhenAnswerIsCurrentlyScoring_ThrowsConflictException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Tell me about SOLID",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/solid.webm"
+            };
+            answer.StartTranscribing();
+            answer.CompleteTranscription("Ban transcript hop le");
+            // Status is now Scoring
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act & Assert (Q3: Tránh hai lần chấm lại chạy chồng lấn)
+            var act = () => _service.ReevaluateAnswerAsync(interview.Id, question.Id, 99);
+            await act.Should().ThrowAsync<ConflictException>()
+                .WithMessage("*không thể re-evaluate chồng chéo*");
+        }
+
+        [Fact]
+        public async Task ReevaluateAnswerAsync_WhenAnswerLacksTranscript_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Tell me about SOLID",
+                OrderIndex = 1
+            };
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestion = question,
+                AudioStorageKey = "audio/solid.webm"
+            };
+            answer.MarkFailed("Whisper STT failed");
+
+            _context.InterviewQuestions.Add(question);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act & Assert
+            var act = () => _service.ReevaluateAnswerAsync(interview.Id, question.Id, 99);
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*chưa có nội dung bóc băng*");
+        }
+
+        [Fact]
+        public async Task GetInterviewEvaluationsAsync_ReturnsEvaluationsOrderedByQuestionAndVersionDescending()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var q1 = new InterviewQuestion { InterviewId = interview.Id, Question = "Q1", OrderIndex = 1 };
+            var q2 = new InterviewQuestion { InterviewId = interview.Id, Question = "Q2", OrderIndex = 2 };
+
+            var a1 = new InterviewAnswer { InterviewId = interview.Id, InterviewQuestion = q1, AudioStorageKey = "a1.webm" };
+            var a2 = new InterviewAnswer { InterviewId = interview.Id, InterviewQuestion = q2, AudioStorageKey = "a2.webm" };
+
+            _context.InterviewQuestions.AddRange(q1, q2);
+            _context.InterviewAnswers.AddRange(a1, a2);
+            await _context.SaveChangesAsync();
+
+            var eval1V1 = QuestionEvaluation.CreateSucceeded(a1.Id, 1, "Snap1", RubricLevel.Acceptable, 5.0m, "Eval1 V1", null, null, null, "gpt-4o-mini", "v1.0");
+            eval1V1.Deactivate();
+            var eval1V2 = QuestionEvaluation.CreateSucceeded(a1.Id, 2, "Snap1-edited", RubricLevel.Good, 7.5m, "Eval1 V2", null, null, null, "gpt-4o-mini", "v1.0");
+            var eval2V1 = QuestionEvaluation.CreateSucceeded(a2.Id, 1, "Snap2", RubricLevel.Excellent, 10.0m, "Eval2 V1", null, null, null, "gpt-4o-mini", "v1.0");
+
+            _context.QuestionEvaluations.AddRange(eval1V1, eval1V2, eval2V1);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var results = await _service.GetInterviewEvaluationsAsync(interview.Id);
+
+            // Assert
+            results.Should().HaveCount(3);
+            // Q1 should come before Q2, and Version 2 should come before Version 1
+            results[0].InterviewAnswerId.Should().Be(a1.Id);
+            results[0].VersionNumber.Should().Be(2);
+            results[0].IsActive.Should().BeTrue();
+
+            results[1].InterviewAnswerId.Should().Be(a1.Id);
+            results[1].VersionNumber.Should().Be(1);
+            results[1].IsActive.Should().BeFalse();
+
+            results[2].InterviewAnswerId.Should().Be(a2.Id);
+            results[2].VersionNumber.Should().Be(1);
+            results[2].IsActive.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task GetQuestionEvaluationsAsync_ReturnsEvaluationsForSpecificQuestion()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var q1 = new InterviewQuestion { InterviewId = interview.Id, Question = "Q1", OrderIndex = 1 };
+            var a1 = new InterviewAnswer { InterviewId = interview.Id, InterviewQuestion = q1, AudioStorageKey = "a1.webm" };
+
+            _context.InterviewQuestions.Add(q1);
+            _context.InterviewAnswers.Add(a1);
+            await _context.SaveChangesAsync();
+
+            var eval1 = QuestionEvaluation.CreateSucceeded(a1.Id, 1, "Snap1", RubricLevel.Good, 7.5m, "Eval1", null, null, null, "gpt-4o-mini", "v1.0");
+            _context.QuestionEvaluations.Add(eval1);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var results = await _service.GetQuestionEvaluationsAsync(interview.Id, q1.Id);
+
+            // Assert
+            results.Should().ContainSingle();
+            results[0].InterviewAnswerId.Should().Be(a1.Id);
+            results[0].Score.Should().Be(7.5m);
         }
     }
 }
