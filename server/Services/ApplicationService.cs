@@ -38,18 +38,28 @@ namespace EmployeeHRMS.Api.Services
         }
 
         // Private helper: map Application entity → ApplicationResponseDto (sau khi đã Include Candidate + JobPosting)
-        private static ApplicationResponseDto MapToResponseDto(Application app) => new()
+        // Ứng viên (Candidate) tuyệt đối KHÔNG được thấy điểm số AI, tóm tắt và đánh giá AI sơ bộ
+        private ApplicationResponseDto MapToResponseDto(Application app)
         {
-            Id = app.Id,
-            AppliedDate = app.AppliedDate,
-            Status = app.Status.ToString(),
-            CandidateName = app.Candidate?.FullName ?? "Unknown",
-            JobTitle = app.JobPosting?.Title ?? "Unknown",
-            AiMatchScore = app.AiMatchScore,
-            AiSummary = app.AiSummary,
-            AiPros = app.AiPros,
-            AiCons = app.AiCons
-        };
+            var user = _httpContextAccessor.HttpContext?.User;
+            var isPrivileged = user != null && (
+                user.IsInRole(nameof(UserRole.Admin)) ||
+                user.IsInRole(nameof(UserRole.HR)) ||
+                user.IsInRole(nameof(UserRole.Interviewer)));
+
+            return new ApplicationResponseDto
+            {
+                Id = app.Id,
+                AppliedDate = app.AppliedDate,
+                Status = app.Status.ToString(),
+                CandidateName = app.Candidate?.FullName ?? "Unknown",
+                JobTitle = app.JobPosting?.Title ?? "Unknown",
+                AiMatchScore = isPrivileged ? app.AiMatchScore : null,
+                AiSummary = isPrivileged ? app.AiSummary : null,
+                AiPros = isPrivileged ? app.AiPros : null,
+                AiCons = isPrivileged ? app.AiCons : null
+            };
+        }
 
         public async Task<PagedResult<ApplicationResponseDto>> GetAllAsync(PaginationParams paginationParams)
         {

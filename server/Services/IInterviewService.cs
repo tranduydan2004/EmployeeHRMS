@@ -33,7 +33,7 @@ namespace EmployeeHRMS.Api.Services
         /// <summary>
         /// Tạo phiên phỏng vấn audio và link mời cho Application (HR).
         /// Copy câu hỏi từ QuestionBankItem của JobPosting (chỉ khi JD đã Approved/Published).
-        /// Chuyển trạng thái Application sang Interviewing.
+        /// Chuyển trạng thái Application sang Screening.
         /// </summary>
         Task<InterviewInviteResponseDto> CreateInviteAsync(int applicationId, InterviewInviteCreateDto? dto = null, CancellationToken cancellationToken = default);
 
@@ -49,17 +49,18 @@ namespace EmployeeHRMS.Api.Services
         Task<CandidateInterviewStartResponseDto> StartCandidateInterviewAsync(Guid inviteToken, CancellationToken cancellationToken = default);
 
         // ============================================================
-        // AI Rubric Grading & Re-evaluation Pipeline (Phase 4)
+        // AI Rubric Grading & Re-evaluation Pipeline (Phase 4 & 5)
         // ============================================================
 
         /// <summary>
-        /// HR/Interviewer chỉnh sửa bản bóc băng của câu trả lời.
+        /// HR/Interviewer chỉnh sửa bản bóc băng của câu trả lời. Hỗ trợ Optimistic Concurrency qua expectedVersion.
         /// </summary>
         Task<InterviewAnswerDetailDto> UpdateTranscriptAsync(
             int interviewId,
             int questionId,
             string editedTranscript,
             int currentUserId,
+            int? expectedVersion = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -85,6 +86,75 @@ namespace EmployeeHRMS.Api.Services
         Task<List<QuestionEvaluationResponseDto>> GetQuestionEvaluationsAsync(
             int interviewId,
             int questionId,
+            CancellationToken cancellationToken = default);
+
+        // ============================================================
+        // HR/Interviewer Review & Governance (Phase 5)
+        // ============================================================
+
+        /// <summary>
+        /// Phân công Interviewer phụ trách đánh giá buổi phỏng vấn (Admin/HR).
+        /// </summary>
+        Task<InterviewResponseDto> AssignInterviewerAsync(
+            int interviewId,
+            int interviewerId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Tạo quyết định sơ loại bất biến (ScreeningDecision) kèm snapshot bằng chứng và lý do ghi đè (Admin/HR).
+        /// </summary>
+        Task<ScreeningDecisionResponseDto> CreateScreeningDecisionAsync(
+            int interviewId,
+            ScreeningDecisionCreateDto dto,
+            int currentUserId,
+            string currentRole,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách lịch sử các quyết định sơ loại (Audit Trail) của buổi phỏng vấn.
+        /// </summary>
+        Task<IEnumerable<ScreeningDecisionResponseDto>> GetScreeningDecisionsAsync(
+            int interviewId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy audio stream cho playback và ghi nhận AudioAccessLog bảo vệ quyền riêng tư theo Luật Bảo vệ dữ liệu cá nhân (Luật số 91/2025/QH15).
+        /// </summary>
+        Task<(Stream Stream, string ContentType)> GetAudioStreamWithAccessLogAsync(
+            string storageKey,
+            int userId,
+            string userRole,
+            string? ipAddress,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách tóm tắt phỏng vấn sơ loại cho Dashboard (chiếu qua .Select() tối ưu, không nạp transcript/jsonb).
+        /// </summary>
+        Task<PagedResult<InterviewDashboardSummaryDto>> GetDashboardSummaryAsync(
+            InterviewDashboardFilterParams filters,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Thống kê nhanh các chỉ số KPI cho Dashboard phỏng vấn sơ loại (Executive Summary).
+        /// </summary>
+        Task<InterviewDashboardStatsDto> GetDashboardStatsAsync(
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách các Interviewer khả dụng để HR/Admin phân công phụ trách.
+        /// </summary>
+        Task<List<InterviewerOptionDto>> GetAvailableInterviewersAsync(
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Xóa dữ liệu cá nhân (file ghi âm, transcript, trích dẫn bằng chứng, phân tích AI) của buổi phỏng vấn (Admin/HR).
+        /// Bảo lưu điểm số rubric và quyết định sơ loại theo luật số 91/2025/QH15.
+        /// </summary>
+        Task<ErasePersonalDataResponseDto> ErasePersonalDataAsync(
+            int interviewId,
+            ErasePersonalDataDto dto,
+            int currentUserId,
+            string currentRole,
             CancellationToken cancellationToken = default);
     }
 }

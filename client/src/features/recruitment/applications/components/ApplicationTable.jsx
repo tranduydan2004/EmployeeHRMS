@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePaginationParams } from '@/hooks/usePaginationParams';
 import { useApplications } from '../hooks/useApplications';
 import { useApplicationMutations } from '../hooks/useApplicationMutations';
@@ -6,9 +7,10 @@ import { usePermission } from '@/hooks/usePermission';
 import ApplicationStatusBadge from './ApplicationStatusBadge';
 import StatusTransitionModal from './StatusTransitionModal';
 import { Table, Pagination, Card, Button, Badge, SearchBar } from '@/components';
-import { Sparkles, RefreshCw, Trash2 } from 'lucide-react';
+import { Sparkles, RefreshCw, Trash2, Headphones } from 'lucide-react';
 
 export default function ApplicationTable() {
+  const navigate = useNavigate();
   const {
     search,
     setSearch,
@@ -92,9 +94,18 @@ export default function ApplicationTable() {
       key: 'actions',
       title: 'Thao Tác',
       align: 'center',
-      width: '140px',
+      width: '210px',
       render: (r) => (
         <div style={{ display: 'flex', justifyContent: 'center', gap: '0.35rem' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={Headphones}
+            onClick={() => navigate(`/interviews?search=${encodeURIComponent(r.candidateName)}`)}
+            title="Xem phỏng vấn & kết quả sơ loại AI"
+          >
+            Sơ loại
+          </Button>
           {(isAdmin || isHR) && (
             <>
               <Button

@@ -52,6 +52,8 @@ namespace EmployeeHRMS.Api.Models
 
         public ICollection<InterviewQuestion> Questions { get; set; } = new List<InterviewQuestion>();
         public ICollection<InterviewAnswer> Answers { get; set; } = new List<InterviewAnswer>();
+        public ICollection<ScreeningDecision> ScreeningDecisions { get; set; } = new List<ScreeningDecision>();
+        public ICollection<AudioAccessLog> AudioAccessLogs { get; set; } = new List<AudioAccessLog>();
 
         // ============================================================
         // Domain Methods — Quản lý trạng thái & AI scoring
@@ -102,6 +104,20 @@ namespace EmployeeHRMS.Api.Models
         public void Cancel()
         {
             Status = InterviewStatus.Cancelled;
+        }
+
+        /// <summary>
+        /// Gán Interviewer phụ trách đánh giá buổi phỏng vấn (Admin/HR thực hiện).
+        /// </summary>
+        public void AssignInterviewer(int interviewerId)
+        {
+            if (interviewerId <= 0)
+                throw new BusinessRuleException("Interviewer ID must be a positive integer.");
+
+            if (Status == InterviewStatus.Cancelled)
+                throw new BusinessRuleException("Cannot assign an interviewer to a cancelled interview.");
+
+            InterviewerId = interviewerId;
         }
 
         // ============================================================

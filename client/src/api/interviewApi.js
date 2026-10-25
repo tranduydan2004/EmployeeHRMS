@@ -57,6 +57,53 @@ export const interviewApi = {
     });
     return res.data;
   },
+
+  // --- Phase 5: HR/Interviewer Dashboard & Governance ---
+  /**
+   * GET /api/interviews/dashboard-summary
+   * Danh sách phỏng vấn sơ loại tối ưu hóa cho Dashboard (không tải transcript/jsonb nặng)
+   */
+  getDashboardSummary: (params) => axiosClient.get('/Interviews/dashboard-summary', { params }),
+
+  /**
+   * GET /api/interviews/dashboard-stats
+   * Thống kê nhanh các chỉ số KPI cho Dashboard (Executive Summary)
+   */
+  getDashboardStats: () => axiosClient.get('/Interviews/dashboard-stats'),
+
+  /**
+   * GET /api/interviews/available-interviewers
+   * Danh sách người phỏng vấn khả dụng để phân công (Admin, HR)
+   */
+  getAvailableInterviewers: () => axiosClient.get('/Interviews/available-interviewers'),
+
+  /**
+   * PATCH /api/interviews/{id}/assign-interviewer
+   * Phân công Interviewer phụ trách buổi phỏng vấn (Admin, HR)
+   */
+  assignInterviewer: (interviewId, interviewerId) =>
+    axiosClient.patch(`/Interviews/${interviewId}/assign-interviewer`, { interviewerId }),
+
+  /**
+   * POST /api/interviews/{id}/screening-decision
+   * Ghi nhận quyết định sơ loại bất biến kèm snapshot bằng chứng và lý do ghi đè (Admin, HR)
+   */
+  createScreeningDecision: (interviewId, data) =>
+    axiosClient.post(`/Interviews/${interviewId}/screening-decision`, data),
+
+  /**
+   * GET /api/interviews/{id}/screening-decisions
+   * Lịch sử các quyết định sơ loại của buổi phỏng vấn (Admin, HR, Interviewer)
+   */
+  getScreeningDecisions: (interviewId) =>
+    axiosClient.get(`/Interviews/${interviewId}/screening-decisions`),
+
+  /**
+   * DELETE /api/interviews/{id}/personal-data
+   * Xóa vĩnh viễn file audio, transcript, trích dẫn bằng chứng và phân tích AI (Admin, HR)
+   */
+  erasePersonalData: (interviewId, data) =>
+    axiosClient.delete(`/Interviews/${interviewId}/personal-data`, { data }),
 };
 
 export default interviewApi;

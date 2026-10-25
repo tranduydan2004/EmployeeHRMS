@@ -37,6 +37,8 @@ namespace EmployeeHRMS.Api.Models
         public int JobPostingId { get; set; }
         public JobPosting JobPosting { get; set; } = null!;
 
+        public ICollection<ScreeningDecision> ScreeningDecisions { get; set; } = new List<ScreeningDecision>();
+
         // ============================================================
         // Domain Methods — Bảo vệ tính toàn vẹn trạng thái
         // ============================================================

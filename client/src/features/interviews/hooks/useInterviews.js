@@ -56,6 +56,50 @@ export function useInterviewEvaluations(interviewId) {
   });
 }
 
+// --- Phase 5: Dashboard List View & Governance Hooks ---
+
+export function useInterviewDashboardSummary(filters = {}) {
+  return useQuery({
+    queryKey: ['interviews', 'dashboard-summary', filters],
+    queryFn: async () => {
+      const res = await interviewApi.getDashboardSummary(filters);
+      return res.data; // PagedResult<InterviewDashboardSummaryDto>
+    },
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useInterviewDashboardStats() {
+  return useQuery({
+    queryKey: ['interviews', 'dashboard-stats'],
+    queryFn: async () => {
+      const res = await interviewApi.getDashboardStats();
+      return res.data; // InterviewDashboardStatsDto
+    },
+  });
+}
+
+export function useAvailableInterviewers() {
+  return useQuery({
+    queryKey: ['interviews', 'available-interviewers'],
+    queryFn: async () => {
+      const res = await interviewApi.getAvailableInterviewers();
+      return res.data; // List<InterviewerOptionDto>
+    },
+  });
+}
+
+export function useScreeningDecisions(interviewId) {
+  return useQuery({
+    queryKey: ['interviews', interviewId, 'screening-decisions'],
+    queryFn: async () => {
+      const res = await interviewApi.getScreeningDecisions(interviewId);
+      return res.data;
+    },
+    enabled: !!interviewId,
+  });
+}
+
 export function useInterviewMutations() {
   const queryClient = useQueryClient();
 
@@ -164,6 +208,61 @@ export function useInterviewMutations() {
     },
   });
 
+  // --- Phase 5: Phân công Interviewer ---
+  const assignInterviewerMutation = useMutation({
+    mutationFn: async ({ interviewId, interviewerId }) => {
+      const res = await interviewApi.assignInterviewer(interviewId, interviewerId);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      toast.success('Phân công người phỏng vấn thành công!');
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể phân công người phỏng vấn.';
+      toast.error(msg);
+    },
+  });
+
+  // --- Phase 5: Quyết định sơ loại bất biến ---
+  const createScreeningDecisionMutation = useMutation({
+    mutationFn: async ({ interviewId, payload }) => {
+      const res = await interviewApi.createScreeningDecision(interviewId, payload);
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      if (variables?.interviewId) {
+        queryClient.invalidateQueries({ queryKey: ['interviews', variables.interviewId, 'screening-decisions'] });
+      }
+      toast.success('Đã ghi nhận quyết định sơ loại thành công!');
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể ghi nhận quyết định sơ loại.';
+      toast.error(msg);
+    },
+  });
+
+  // --- Phase 5 - Step 6: Xóa dữ liệu cá nhân theo quyền riêng tư (Right to Erasure) ---
+  const erasePersonalDataMutation = useMutation({
+    mutationFn: async ({ interviewId, reason }) => {
+      const res = await interviewApi.erasePersonalData(interviewId, { reason });
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      if (variables?.interviewId) {
+        queryClient.invalidateQueries({ queryKey: ['interviews', variables.interviewId] });
+      }
+      toast.success('Đã xóa dữ liệu cá nhân an toàn theo chính sách bảo mật!');
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể xóa dữ liệu cá nhân.';
+      toast.error(msg);
+    },
+  });
+
   return {
     createInterview: createInterviewMutation.mutateAsync,
     addQuestion: addQuestionMutation.mutateAsync,
@@ -172,6 +271,9 @@ export function useInterviewMutations() {
     completeInterview: completeInterviewMutation.mutateAsync,
     updateTranscript: updateTranscriptMutation.mutateAsync,
     reevaluateAnswer: reevaluateMutation.mutateAsync,
+    assignInterviewer: assignInterviewerMutation.mutateAsync,
+    createScreeningDecision: createScreeningDecisionMutation.mutateAsync,
+    erasePersonalData: erasePersonalDataMutation.mutateAsync,
     isCreating: createInterviewMutation.isPending,
     isAddingQuestion: addQuestionMutation.isPending,
     isUpdatingAnswer: updateQuestionAnswerMutation.isPending,
@@ -179,5 +281,8 @@ export function useInterviewMutations() {
     isCompleting: completeInterviewMutation.isPending,
     isUpdatingTranscript: updateTranscriptMutation.isPending,
     isReevaluating: reevaluateMutation.isPending,
+    isAssigning: assignInterviewerMutation.isPending,
+    isDeciding: createScreeningDecisionMutation.isPending,
+    isErasingPersonalData: erasePersonalDataMutation.isPending,
   };
 }

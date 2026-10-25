@@ -160,6 +160,54 @@ namespace EmployeeHRMS.Tests.Services
             result.Items[0].CandidateName.Should().Be("Candidate A");
         }
 
+        [Fact]
+        public async Task GetByIdAsync_WhenCalledByCandidate_SanitizesAiFields()
+        {
+            // Arrange — set AI screening fields on Application 1
+            var app = await _context.Applications.FindAsync(1);
+            app!.AiMatchScore = 85.5m;
+            app.AiSummary = "Strong background in C#";
+            app.AiPros = "Good communication";
+            app.AiCons = "Lacks cloud experience";
+            await _context.SaveChangesAsync();
+
+            // Set role to Candidate
+            SetupUserContext("Candidate", 10);
+            var service = new ApplicationService(_context, _eventLogger, _httpContextAccessor.Object);
+
+            // Act
+            var result = await service.GetByIdAsync(1);
+
+            // Assert — Candidate must NOT see AI screening results
+            result.Should().NotBeNull();
+            result!.AiMatchScore.Should().BeNull();
+            result.AiSummary.Should().BeNull();
+            result.AiPros.Should().BeNull();
+            result.AiCons.Should().BeNull();
+        }
+
+        [Fact]
+        public async Task GetByIdAsync_WhenCalledByAdmin_ReturnsAiFields()
+        {
+            // Arrange — set AI screening fields on Application 1
+            var app = await _context.Applications.FindAsync(1);
+            app!.AiMatchScore = 85.5m;
+            app.AiSummary = "Strong background in C#";
+            await _context.SaveChangesAsync();
+
+            // Set role to Admin
+            SetupUserContext("Admin", 1);
+            var service = new ApplicationService(_context, _eventLogger, _httpContextAccessor.Object);
+
+            // Act
+            var result = await service.GetByIdAsync(1);
+
+            // Assert — Admin CAN see AI screening results
+            result.Should().NotBeNull();
+            result!.AiMatchScore.Should().Be(85.5m);
+            result.AiSummary.Should().Be("Strong background in C#");
+        }
+
         public void Dispose()
         {
             _context.Database.EnsureDeleted();

@@ -94,6 +94,12 @@ namespace EmployeeHRMS.Api.Models
         public DateTime? LastEditedAt { get; private set; }
 
         /// <summary>
+        /// Phiên bản sửa đổi của câu trả lời/transcript phục vụ Optimistic Concurrency Control (Phase 5).
+        /// Tăng 1 sau mỗi lần UpdateTranscript.
+        /// </summary>
+        public int EditVersion { get; private set; } = 1;
+
+        /// <summary>
         /// Ngôn ngữ do Whisper API nhận diện từ giọng nói (từ verbose_json).
         /// </summary>
         public string? DetectedLanguage { get; private set; }
@@ -173,6 +179,20 @@ namespace EmployeeHRMS.Api.Models
             EditedTranscript = editedTranscript.Trim();
             LastEditedByUserId = userId;
             LastEditedAt = DateTime.UtcNow;
+            EditVersion++;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Xóa dữ liệu cá nhân (Audio key, Transcript, EditedTranscript, Segments)
+        /// theo yêu cầu quyền riêng tư (Luật số 91/2025/QH15).
+        /// </summary>
+        public void AnonymizePersonalData()
+        {
+            AudioStorageKey = string.Empty;
+            Transcript = null;
+            EditedTranscript = null;
+            TranscriptSegments = null;
             UpdatedAt = DateTime.UtcNow;
         }
 

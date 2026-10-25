@@ -195,5 +195,19 @@ namespace EmployeeHRMS.Api.Models
             ConfirmedByUserId = userId;
             ConfirmedAt = DateTime.UtcNow;
         }
+
+        /// <summary>
+        /// Xóa/làm sạch dữ liệu văn bản cá nhân (TranscriptSnapshot, EvidenceQuotes, Analysis, Strengths, Concerns)
+        /// theo yêu cầu quyền riêng tư (Luật số 91/2025/QH15).
+        /// Giữ nguyên Level, Score, Outcome để bảo toàn kiểm toán kết quả.
+        /// </summary>
+        public void AnonymizePersonalData()
+        {
+            TranscriptSnapshot = "[Đã xóa theo chính sách bảo mật dữ liệu cá nhân]";
+            Analysis = null;
+            EvidenceQuotes = new List<string>();
+            Strengths = new List<string>();
+            Concerns = new List<string>();
+        }
     }
 }
