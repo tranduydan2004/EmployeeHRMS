@@ -65,17 +65,47 @@ export function useDeleteApplication() {
   };
 }
 
+export function useCreateInterviewInvite(options = {}) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async ({ applicationId, payload }) => {
+      const res = await axiosClient.post(`/Applications/${applicationId}/interview-invite`, payload);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      if (options.showToast !== false) {
+        if (data.emailSent) {
+          toast.success('Đã tạo lời mời phỏng vấn và gửi email thành công!');
+        } else {
+          toast.warning(data.emailMessage || 'Tạo lời mời thành công (chưa gửi email do chưa cấu hình SMTP).');
+        }
+      }
+    },
+  });
+
+  return {
+    createInterviewInvite: mutation.mutateAsync,
+    isCreatingInvite: mutation.isPending,
+  };
+}
+
 export function useApplicationMutations(options = {}) {
   const { createApplication, isCreating } = useCreateApplication(options);
   const { updateStatus, isUpdatingStatus } = useUpdateApplicationStatus();
   const { deleteApplication, isDeleting } = useDeleteApplication();
+  const { createInterviewInvite, isCreatingInvite } = useCreateInterviewInvite(options);
 
   return {
     createApplication,
     updateStatus,
     deleteApplication,
+    createInterviewInvite,
     isCreating,
     isUpdatingStatus,
     isDeleting,
+    isCreatingInvite,
   };
 }

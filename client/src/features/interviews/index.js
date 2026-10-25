@@ -1,5 +1,6 @@
 export { default as InterviewList } from './components/InterviewList';
 export { default as InterviewScheduleModal } from './components/InterviewScheduleModal';
+export { default as AudioInterviewInviteModal } from './components/AudioInterviewInviteModal';
 export { default as QuestionEvaluationCard } from './components/QuestionEvaluationCard';
 export { default as CompleteInterviewModal } from './components/CompleteInterviewModal';
 export { default as AudioAnswerPlayer } from './components/AudioAnswerPlayer';

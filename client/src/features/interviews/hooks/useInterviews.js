@@ -263,8 +263,50 @@ export function useInterviewMutations() {
     },
   });
 
+  // --- Phase 2: Mời phỏng vấn Audio sơ loại & Gửi lại lời mời ---
+  const createInterviewInviteMutation = useMutation({
+    mutationFn: async ({ applicationId, payload }) => {
+      const res = await interviewApi.createInvite(applicationId, payload);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      if (data.emailSent) {
+        toast.success('Đã tạo phiên phỏng vấn và gửi email mời thành công!');
+      } else {
+        toast.warning(data.emailMessage || 'Đã tạo phiên phỏng vấn (chưa gửi email do chưa cấu hình SMTP).');
+      }
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể tạo lời mời phỏng vấn audio.';
+      toast.error(msg);
+    },
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: async (interviewId) => {
+      const res = await interviewApi.resendInvite(interviewId);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      if (data.emailSent) {
+        toast.success('Đã gửi lại email lời mời phỏng vấn thành công!');
+      } else {
+        toast.warning(data.message || 'Không thể gửi email qua SMTP. Hãy sao chép liên kết trực tiếp.');
+      }
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.error || 'Không thể gửi lại email lời mời.';
+      toast.error(msg);
+    },
+  });
+
   return {
     createInterview: createInterviewMutation.mutateAsync,
+    createInterviewInvite: createInterviewInviteMutation.mutateAsync,
+    resendInvite: resendInviteMutation.mutateAsync,
     addQuestion: addQuestionMutation.mutateAsync,
     updateQuestionAnswer: updateQuestionAnswerMutation.mutateAsync,
     deleteInterview: deleteInterviewMutation.mutateAsync,
@@ -275,6 +317,8 @@ export function useInterviewMutations() {
     createScreeningDecision: createScreeningDecisionMutation.mutateAsync,
     erasePersonalData: erasePersonalDataMutation.mutateAsync,
     isCreating: createInterviewMutation.isPending,
+    isCreatingInvite: createInterviewInviteMutation.isPending,
+    isResendingInvite: resendInviteMutation.isPending,
     isAddingQuestion: addQuestionMutation.isPending,
     isUpdatingAnswer: updateQuestionAnswerMutation.isPending,
     isDeleting: deleteInterviewMutation.isPending,

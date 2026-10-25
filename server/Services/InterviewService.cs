@@ -102,7 +102,7 @@ namespace EmployeeHRMS.Api.Services
         /// <summary>
         /// Nested projection: Interview → InterviewResponseDto (kèm List<InterviewQuestionResponseDto>).
         /// </summary>
-        private static InterviewResponseDto MapToResponseDto(Interview interview) => new()
+        private InterviewResponseDto MapToResponseDto(Interview interview) => new()
         {
             Id = interview.Id,
             ApplicationId = interview.ApplicationId,
@@ -117,6 +117,11 @@ namespace EmployeeHRMS.Api.Services
             AiOverallScore = interview.AiOverallScore,
             AiOverallSummary = interview.AiOverallSummary,
             Recommendation = interview.Recommendation?.ToString(),
+            InviteToken = interview.InviteExpiresAt.HasValue ? interview.InviteToken : null,
+            InviteExpiresAt = interview.InviteExpiresAt,
+            InviteUrl = interview.InviteExpiresAt.HasValue && interview.InviteToken != Guid.Empty && !string.IsNullOrWhiteSpace(_audioInterviewOptions.BaseCandidatePortalUrl)
+                ? $"{_audioInterviewOptions.BaseCandidatePortalUrl.TrimEnd('/')}/{interview.InviteToken}"
+                : null,
             IsPersonalDataErased = (interview.Answers != null && interview.Answers.Any()
                 ? interview.Answers
                 : interview.Questions.Where(q => q.Answer != null).Select(q => q.Answer!))
@@ -530,6 +535,9 @@ namespace EmployeeHRMS.Api.Services
                 _eventLogger.OnEntityCreated);
 
             // Gửi email mời phỏng vấn (tùy chọn qua MailKit)
+            bool emailSent = false;
+            string? emailMessage = null;
+
             if (dto?.SendEmail != false && !string.IsNullOrWhiteSpace(application.Candidate?.Email) && _emailService != null)
             {
                 var candidateName = application.Candidate.FullName;
@@ -538,17 +546,32 @@ namespace EmployeeHRMS.Api.Services
 <p>Bạn đã được mời tham gia vòng phỏng vấn ghi âm sơ loại cho vị trí <strong>{job.Title}</strong>.</p>
 <p>Vui lòng truy cập liên kết dưới đây để bắt đầu bài phỏng vấn:</p>
 <p><a href='{inviteUrl}' style='display:inline-block;padding:10px 20px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;'>Bắt đầu phỏng vấn</a></p>
+<p>Hoặc sao chép liên kết: {inviteUrl}</p>
 <p>Liên kết sẽ hết hạn vào lúc: <strong>{interview.InviteExpiresAt:dd/MM/yyyy HH:mm} (UTC)</strong>.</p>
 <p>Trân trọng,<br/>Phòng Tuyển dụng</p>";
 
                 try
                 {
-                    await _emailService.SendEmailAsync(application.Candidate.Email, subject, body);
+                    emailSent = await _emailService.SendEmailAsync(application.Candidate.Email, subject, body);
+                    emailMessage = emailSent
+                        ? "Đã gửi email mời thành công đến ứng viên."
+                        : "Không thể gửi email qua SMTP server (chưa cấu hình thông tin SMTP hợp lệ). Vui lòng sao chép liên kết phỏng vấn để gửi trực tiếp cho ứng viên.";
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Email gửi lỗi không chặn luồng chính
+                    emailSent = false;
+                    emailMessage = $"Gửi email thất bại: {ex.Message}. Vui lòng sao chép liên kết phỏng vấn để gửi trực tiếp cho ứng viên.";
                 }
+            }
+            else if (dto?.SendEmail == false)
+            {
+                emailSent = false;
+                emailMessage = "Tùy chọn không gửi email đã được chọn. Vui lòng gửi liên kết phỏng vấn cho ứng viên thủ công.";
+            }
+            else
+            {
+                emailSent = false;
+                emailMessage = "Không có thông tin email ứng viên hoặc dịch vụ gửi email chưa được cấu hình.";
             }
 
             return new InterviewInviteResponseDto
@@ -563,7 +586,9 @@ namespace EmployeeHRMS.Api.Services
                 Status = interview.Status.ToString(),
                 CandidateName = application.Candidate?.FullName ?? string.Empty,
                 CandidateEmail = application.Candidate?.Email ?? string.Empty,
-                JobTitle = job.Title
+                JobTitle = job.Title,
+                EmailSent = emailSent,
+                EmailMessage = emailMessage
             };
         }
 
@@ -682,6 +707,105 @@ namespace EmployeeHRMS.Api.Services
                 Status = interview.Status.ToString(),
                 ConsentedAt = interview.ConsentedAt,
                 Message = "Bắt đầu phiên phỏng vấn thành công."
+            };
+        }
+
+        public async Task<ResendInviteResponseDto> ResendInviteAsync(
+            int interviewId,
+            CancellationToken cancellationToken = default)
+        {
+            var interview = await _context.Interviews
+                .Include(i => i.Application)
+                    .ThenInclude(a => a.Candidate)
+                .Include(i => i.Application)
+                    .ThenInclude(a => a.JobPosting)
+                .FirstOrDefaultAsync(i => i.Id == interviewId, cancellationToken)
+                ?? throw new NotFoundException("Interview", interviewId);
+
+            if (!interview.InviteExpiresAt.HasValue || interview.InviteToken == Guid.Empty)
+            {
+                throw new BusinessRuleException("Buổi phỏng vấn này không phải là phỏng vấn trực tuyến qua liên kết (không có InviteToken hoặc hạn dùng).");
+            }
+
+            if (interview.Status == InterviewStatus.Cancelled)
+            {
+                throw new BusinessRuleException("Buổi phỏng vấn này đã bị hủy.");
+            }
+
+            if (interview.Status == InterviewStatus.Completed)
+            {
+                throw new ConflictException("Buổi phỏng vấn này đã hoàn thành.");
+            }
+
+            if (interview.IsInviteExpired(DateTime.UtcNow) || interview.Status == InterviewStatus.Expired)
+            {
+                if (interview.Status != InterviewStatus.Expired)
+                {
+                    interview.MarkExpired();
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                throw new BusinessRuleException("Liên kết phỏng vấn này đã hết hạn.", HttpStatusCode.Gone);
+            }
+
+            var application = interview.Application
+                ?? throw new BusinessRuleException("Không tìm thấy thông tin hồ sơ ứng tuyển gắn với buổi phỏng vấn này.");
+            var job = application.JobPosting
+                ?? throw new BusinessRuleException("Không tìm thấy thông tin tin tuyển dụng.");
+            var candidateEmail = application.Candidate?.Email;
+
+            if (string.IsNullOrWhiteSpace(candidateEmail))
+            {
+                throw new BusinessRuleException("Ứng viên không có địa chỉ email hợp lệ để gửi lời mời.");
+            }
+
+            var portalBase = _audioInterviewOptions.BaseCandidatePortalUrl.TrimEnd('/');
+            var inviteUrl = $"{portalBase}/{interview.InviteToken}";
+            var candidateName = application.Candidate?.FullName ?? "Ứng viên";
+            var subject = $"[HRMS] Nhắc nhở: Lời mời tham gia phỏng vấn vị trí {job.Title}";
+            var body = $@"<p>Xin chào <strong>{candidateName}</strong>,</p>
+<p>Hệ thống gửi lại bạn liên kết tham gia vòng phỏng vấn ghi âm sơ loại cho vị trí <strong>{job.Title}</strong>.</p>
+<p>Vui lòng truy cập liên kết dưới đây để bắt đầu bài phỏng vấn:</p>
+<p><a href='{inviteUrl}' style='display:inline-block;padding:10px 20px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;'>Bắt đầu phỏng vấn</a></p>
+<p>Hoặc sao chép liên kết: {inviteUrl}</p>
+<p>Liên kết sẽ hết hạn vào lúc: <strong>{interview.InviteExpiresAt:dd/MM/yyyy HH:mm} (UTC)</strong>.</p>
+<p>Trân trọng,<br/>Phòng Tuyển dụng</p>";
+
+            bool emailSent = false;
+            string message;
+
+            if (_emailService != null)
+            {
+                try
+                {
+                    emailSent = await _emailService.SendEmailAsync(candidateEmail, subject, body);
+                    message = emailSent
+                        ? $"Đã gửi lại email lời mời phỏng vấn thành công đến {candidateEmail}."
+                        : "Không thể gửi email qua SMTP server (chưa cấu hình SMTP hợp lệ). Vui lòng sao chép liên kết phỏng vấn để gửi trực tiếp cho ứng viên.";
+                }
+                catch (Exception ex)
+                {
+                    emailSent = false;
+                    message = $"Gửi email thất bại: {ex.Message}. Vui lòng sao chép liên kết phỏng vấn để gửi trực tiếp.";
+                }
+            }
+            else
+            {
+                emailSent = false;
+                message = "Dịch vụ Email chưa được cấu hình. Vui lòng sao chép liên kết phỏng vấn để gửi trực tiếp.";
+            }
+
+            _eventLogger.LogEvent("Interview",
+                $"Resent invite (InterviewId: {interview.Id}, EmailSent: {emailSent})",
+                _eventLogger.OnEntityUpdated);
+
+            return new ResendInviteResponseDto
+            {
+                InterviewId = interview.Id,
+                InviteToken = interview.InviteToken,
+                InviteUrl = inviteUrl,
+                InviteExpiresAt = interview.InviteExpiresAt!.Value,
+                EmailSent = emailSent,
+                Message = message
             };
         }
 
@@ -1375,9 +1499,23 @@ namespace EmployeeHRMS.Api.Services
                     LatestDecisionAt = i.ScreeningDecisions
                         .OrderByDescending(d => d.DecidedAt)
                         .Select(d => (DateTime?)d.DecidedAt)
-                        .FirstOrDefault()
+                        .FirstOrDefault(),
+                    InviteToken = i.InviteToken,
+                    InviteExpiresAt = i.InviteExpiresAt
                 })
                 .ToListAsync(cancellationToken);
+
+            var portalBase = _audioInterviewOptions.BaseCandidatePortalUrl?.TrimEnd('/');
+            if (!string.IsNullOrEmpty(portalBase))
+            {
+                foreach (var item in items)
+                {
+                    if (item.InviteToken.HasValue)
+                    {
+                        item.InviteUrl = $"{portalBase}/{item.InviteToken.Value}";
+                    }
+                }
+            }
 
             return new PagedResult<InterviewDashboardSummaryDto>
             {

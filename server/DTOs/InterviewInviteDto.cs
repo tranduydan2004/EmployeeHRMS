@@ -27,5 +27,17 @@ namespace EmployeeHRMS.Api.DTOs
         public string CandidateName { get; set; } = string.Empty;
         public string CandidateEmail { get; set; } = string.Empty;
         public string JobTitle { get; set; } = string.Empty;
+        public bool EmailSent { get; set; }
+        public string? EmailMessage { get; set; }
+    }
+
+    public class ResendInviteResponseDto
+    {
+        public int InterviewId { get; set; }
+        public Guid InviteToken { get; set; }
+        public string InviteUrl { get; set; } = string.Empty;
+        public DateTime InviteExpiresAt { get; set; }
+        public bool EmailSent { get; set; }
+        public string Message { get; set; } = string.Empty;
     }
 }

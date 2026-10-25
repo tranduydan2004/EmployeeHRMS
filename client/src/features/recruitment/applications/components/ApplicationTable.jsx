@@ -6,8 +6,9 @@ import { useApplicationMutations } from '../hooks/useApplicationMutations';
 import { usePermission } from '@/hooks/usePermission';
 import ApplicationStatusBadge from './ApplicationStatusBadge';
 import StatusTransitionModal from './StatusTransitionModal';
+import { AudioInterviewInviteModal } from '@/features/interviews';
 import { Table, Pagination, Card, Button, Badge, SearchBar } from '@/components';
-import { Sparkles, RefreshCw, Trash2, Headphones } from 'lucide-react';
+import { Sparkles, RefreshCw, Trash2, Headphones, Send } from 'lucide-react';
 
 export default function ApplicationTable() {
   const navigate = useNavigate();
@@ -28,10 +29,15 @@ export default function ApplicationTable() {
 
   const [selectedApp, setSelectedApp] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [inviteModalApp, setInviteModalApp] = useState(null);
 
   const handleOpenTransition = (app) => {
     setSelectedApp(app);
     setIsModalOpen(true);
+  };
+
+  const handleOpenAudioInvite = (app) => {
+    setInviteModalApp(app);
   };
 
   const handleTransition = async ({ id, status }) => {
@@ -97,6 +103,17 @@ export default function ApplicationTable() {
       width: '210px',
       render: (r) => (
         <div style={{ display: 'flex', justifyContent: 'center', gap: '0.35rem' }}>
+          {(isAdmin || isHR) && (r.status === 'Applied' || r.status === 'Screening') && (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Sparkles}
+              onClick={() => handleOpenAudioInvite(r)}
+              title="Mời phỏng vấn Audio sơ loại (AI Screening)"
+            >
+              Mời PV
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -181,6 +198,14 @@ export default function ApplicationTable() {
         application={selectedApp}
         isLoading={isUpdatingStatus}
       />
+
+      {inviteModalApp && (
+        <AudioInterviewInviteModal
+          isOpen={!!inviteModalApp}
+          onClose={() => setInviteModalApp(null)}
+          application={inviteModalApp}
+        />
+      )}
     </div>
   );
 }

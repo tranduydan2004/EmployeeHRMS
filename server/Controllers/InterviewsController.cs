@@ -122,6 +122,15 @@ namespace EmployeeHRMS.Api.Controllers
             return CreatedAtAction(nameof(GetById), new { id = interview.Id }, interview);
         }
 
+        // POST: api/interviews/{id}/resend-invite — Gửi lại email lời mời phỏng vấn (Admin, HR)
+        [HttpPost("{id:int}/resend-invite")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> ResendInterviewInvite(int id, CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.ResendInviteAsync(id, cancellationToken);
+            return Ok(result);
+        }
+
         // PATCH: api/interviews/{id}/complete — Hoàn tất phỏng vấn (Admin, HR, Interviewer)
         [HttpPatch("{id}/complete")]
         [Authorize(Roles = "Admin,HR,Interviewer")]

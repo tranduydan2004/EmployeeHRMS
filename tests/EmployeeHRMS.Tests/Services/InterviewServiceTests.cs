@@ -660,6 +660,59 @@ namespace EmployeeHRMS.Tests.Services
                 .WithMessage("*đã hoàn thành*");
         }
 
+        [Fact]
+        public async Task ResendInviteAsync_WhenInterviewNotFound_ShouldThrowNotFoundException()
+        {
+            var act = () => _service.ResendInviteAsync(99999);
+            await act.Should().ThrowAsync<NotFoundException>();
+        }
+
+        [Fact]
+        public async Task ResendInviteAsync_WhenNotAudioInterview_ShouldThrowBusinessRuleException()
+        {
+            var dept = new Department { Name = "Dept" };
+            _context.Departments.Add(dept);
+            await _context.SaveChangesAsync();
+
+            var job = new JobPosting { Title = "Job", DepartmentId = dept.Id, Status = JobPostingStatus.Approved };
+            _context.JobPostings.Add(job);
+
+            var candidate = new Candidate { FullName = "Cand", Email = "c@test.com", Phone = "123", ResumeUrl = "" };
+            _context.Candidates.Add(candidate);
+
+            var app = new Application { JobPostingId = job.Id, CandidateId = candidate.Id };
+            app.SetInitialStatus();
+            _context.Applications.Add(app);
+            await _context.SaveChangesAsync();
+
+            var directInterview = new Interview { ApplicationId = app.Id, ScheduledDate = DateTime.UtcNow.AddDays(1) };
+            directInterview.Schedule();
+            _context.Interviews.Add(directInterview);
+            await _context.SaveChangesAsync();
+
+            var act = () => _service.ResendInviteAsync(directInterview.Id);
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*không phải là phỏng vấn trực tuyến qua liên kết*");
+        }
+
+        [Fact]
+        public async Task ResendInviteAsync_WhenValid_ShouldSendEmailAndReturnDto()
+        {
+            _emailServiceMock
+                .Setup(e => e.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                .ReturnsAsync(true);
+
+            var interview = await CreateTestInterviewAsync();
+
+            var result = await _service.ResendInviteAsync(interview.Id);
+
+            result.Should().NotBeNull();
+            result.InterviewId.Should().Be(interview.Id);
+            result.InviteToken.Should().Be(interview.InviteToken);
+            result.InviteUrl.Should().Contain(interview.InviteToken.ToString());
+            result.EmailSent.Should().BeTrue();
+        }
+
         // ============================================================
         // AI Rubric Grading & Re-evaluation Tests (Phase 4 Step 6)
         // ============================================================

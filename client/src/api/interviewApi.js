@@ -18,6 +18,12 @@ export const interviewApi = {
     axiosClient.patch(`/Interviews/${interviewId}/questions/${questionId}/answer`, { candidateAnswer }),
   delete: (id) => axiosClient.delete(`/Interviews/${id}`),
 
+  // --- Phase 2: Candidate Audio Interview & Link Sharing ---
+  createInvite: (applicationId, data) =>
+    axiosClient.post(`/Applications/${applicationId}/interview-invite`, data),
+  resendInvite: (interviewId) =>
+    axiosClient.post(`/Interviews/${interviewId}/resend-invite`),
+
   // --- Phase 4: AI Rubric Grading, Re-evaluation & Audit Trail ---
   /**
    * PUT /api/interviews/{id}/answers/{questionId}/transcript
