@@ -48,6 +48,11 @@ namespace EmployeeHRMS.Api.Services
         /// </summary>
         Task<CandidateInterviewStartResponseDto> StartCandidateInterviewAsync(Guid inviteToken, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Gửi lại email lời mời phỏng vấn cho ứng viên (Admin/HR).
+        /// </summary>
+        Task<ResendInviteResponseDto> ResendInviteAsync(int interviewId, CancellationToken cancellationToken = default);
+
         // ============================================================
         // AI Rubric Grading & Re-evaluation Pipeline (Phase 4 & 5)
         // ============================================================

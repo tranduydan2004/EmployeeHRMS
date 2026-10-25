@@ -48,6 +48,9 @@ namespace EmployeeHRMS.Api.DTOs
         public string? AiOverallSummary { get; set; }
         public string? Recommendation { get; set; }
         public bool IsPersonalDataErased { get; set; }
+        public Guid? InviteToken { get; set; }
+        public DateTime? InviteExpiresAt { get; set; }
+        public string? InviteUrl { get; set; }
 
         // Nested projection: List<InterviewQuestion> → List<InterviewQuestionResponseDto>
         public List<InterviewQuestionResponseDto> Questions { get; set; } = new();

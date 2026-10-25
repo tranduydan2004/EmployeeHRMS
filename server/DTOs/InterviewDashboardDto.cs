@@ -30,6 +30,9 @@ namespace EmployeeHRMS.Api.DTOs
         public bool HasDecision { get; set; }
         public string? LatestDecisionType { get; set; }
         public DateTime? LatestDecisionAt { get; set; }
+        public Guid? InviteToken { get; set; }
+        public DateTime? InviteExpiresAt { get; set; }
+        public string? InviteUrl { get; set; }
     }
 
     /// <summary>

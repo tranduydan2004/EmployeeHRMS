@@ -12,6 +12,10 @@ server/appsettings.Development.json
 server/wwwroot/uploads/*
 !server/wwwroot/uploads/.gitkeep
 
+# Audio storage (retain folder structure via .gitkeep)
+server/storage/*
+!server/storage/.gitkeep
+
 # ==========================================
 # Frontend (Vite / React)
 # ==========================================
