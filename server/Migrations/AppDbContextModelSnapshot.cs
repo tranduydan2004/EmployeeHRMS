@@ -125,6 +125,53 @@ namespace EmployeeHRMS.Api.Migrations
                         });
                 });
 
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.AudioAccessLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AccessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("InterviewAnswerId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("InterviewId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserRole")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccessedAt");
+
+                    b.HasIndex("InterviewAnswerId");
+
+                    b.HasIndex("InterviewId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AudioAccessLogs");
+                });
+
             modelBuilder.Entity("EmployeeHRMS.Api.Models.Candidate", b =>
                 {
                     b.Property<int>("Id")
@@ -312,6 +359,11 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Property<string>("DetectedLanguage")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<int>("EditVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("EditedTranscript")
                         .HasColumnType("text");
@@ -733,6 +785,70 @@ namespace EmployeeHRMS.Api.Migrations
                     b.ToTable("RefreshTokens");
                 });
 
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.ScreeningDecision", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ApplicationId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DecidedByRole")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("DecidedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DecisionType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("InterviewId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("OverrideReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("ScoredQuestionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("SystemOverallScore")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<string>("SystemRecommendation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("TotalQuestionCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationId");
+
+                    b.HasIndex("DecidedAt");
+
+                    b.HasIndex("DecidedByUserId");
+
+                    b.HasIndex("InterviewId");
+
+                    b.ToTable("ScreeningDecisions");
+                });
+
             modelBuilder.Entity("EmployeeHRMS.Api.Models.Application", b =>
                 {
                     b.HasOne("EmployeeHRMS.Api.Models.Candidate", "Candidate")
@@ -760,6 +876,32 @@ namespace EmployeeHRMS.Api.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.AudioAccessLog", b =>
+                {
+                    b.HasOne("EmployeeHRMS.Api.Models.InterviewAnswer", "InterviewAnswer")
+                        .WithMany()
+                        .HasForeignKey("InterviewAnswerId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("EmployeeHRMS.Api.Models.Interview", "Interview")
+                        .WithMany("AudioAccessLogs")
+                        .HasForeignKey("InterviewId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EmployeeHRMS.Api.Models.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Interview");
+
+                    b.Navigation("InterviewAnswer");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.Candidate", b =>
@@ -1056,6 +1198,77 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.ScreeningDecision", b =>
+                {
+                    b.HasOne("EmployeeHRMS.Api.Models.Application", "Application")
+                        .WithMany("ScreeningDecisions")
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EmployeeHRMS.Api.Models.ApplicationUser", "DecidedByUser")
+                        .WithMany()
+                        .HasForeignKey("DecidedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EmployeeHRMS.Api.Models.Interview", "Interview")
+                        .WithMany("ScreeningDecisions")
+                        .HasForeignKey("InterviewId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.OwnsMany("EmployeeHRMS.Api.Models.ValueObjects.QuestionEvaluationSnapshotItem", "EvaluationSnapshot", b1 =>
+                        {
+                            b1.Property<int>("ScreeningDecisionId")
+                                .HasColumnType("integer");
+
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            b1.Property<int?>("EvaluationId")
+                                .HasColumnType("integer");
+
+                            b1.Property<int>("InterviewQuestionId")
+                                .HasColumnType("integer");
+
+                            b1.Property<string>("Level")
+                                .HasColumnType("text");
+
+                            b1.Property<string>("Outcome")
+                                .HasColumnType("text");
+
+                            b1.Property<decimal?>("Score")
+                                .HasColumnType("numeric");
+
+                            b1.Property<int?>("VersionNumber")
+                                .HasColumnType("integer");
+
+                            b1.HasKey("ScreeningDecisionId", "Id");
+
+                            b1.ToTable("ScreeningDecisions");
+
+                            b1.ToJson("EvaluationSnapshot");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ScreeningDecisionId");
+                        });
+
+                    b.Navigation("Application");
+
+                    b.Navigation("DecidedByUser");
+
+                    b.Navigation("EvaluationSnapshot");
+
+                    b.Navigation("Interview");
+                });
+
+            modelBuilder.Entity("EmployeeHRMS.Api.Models.Application", b =>
+                {
+                    b.Navigation("ScreeningDecisions");
+                });
+
             modelBuilder.Entity("EmployeeHRMS.Api.Models.ApplicationUser", b =>
                 {
                     b.Navigation("RefreshTokens");
@@ -1077,7 +1290,11 @@ namespace EmployeeHRMS.Api.Migrations
                 {
                     b.Navigation("Answers");
 
+                    b.Navigation("AudioAccessLogs");
+
                     b.Navigation("Questions");
+
+                    b.Navigation("ScreeningDecisions");
                 });
 
             modelBuilder.Entity("EmployeeHRMS.Api.Models.InterviewAnswer", b =>

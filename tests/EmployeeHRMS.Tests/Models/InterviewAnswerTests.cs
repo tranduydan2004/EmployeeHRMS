@@ -1,4 +1,5 @@
 using System;
+using EmployeeHRMS.Api.Exceptions;
 using EmployeeHRMS.Api.Models;
 using FluentAssertions;
 using Xunit;
@@ -150,6 +151,72 @@ namespace EmployeeHRMS.Tests.Models
             var interview = new Interview();
 
             interview.InviteToken.Should().NotBeEmpty();
+        }
+
+        [Fact]
+        public void UpdateTranscript_ShouldIncrementEditVersionAndSetProperties()
+        {
+            // Arrange
+            var answer = new InterviewAnswer();
+            answer.EditVersion.Should().Be(1);
+
+            // Act 1st edit
+            answer.UpdateTranscript("First edited transcript", 42);
+
+            // Assert
+            answer.EditVersion.Should().Be(2);
+            answer.EditedTranscript.Should().Be("First edited transcript");
+            answer.LastEditedByUserId.Should().Be(42);
+            answer.LastEditedAt.Should().NotBeNull();
+
+            // Act 2nd edit
+            answer.UpdateTranscript("Second edited transcript", 99);
+
+            // Assert
+            answer.EditVersion.Should().Be(3);
+            answer.EditedTranscript.Should().Be("Second edited transcript");
+            answer.LastEditedByUserId.Should().Be(99);
+        }
+
+        [Fact]
+        public void Interview_AssignInterviewer_WhenValid_ShouldSetInterviewerId()
+        {
+            var interview = new Interview();
+            interview.AssignInterviewer(77);
+
+            interview.InterviewerId.Should().Be(77);
+        }
+
+        [Fact]
+        public void Interview_AssignInterviewer_WhenCancelled_ShouldThrow()
+        {
+            var interview = new Interview();
+            interview.Cancel();
+
+            var act = () => interview.AssignInterviewer(77);
+            act.Should().Throw<BusinessRuleException>()
+                .WithMessage("*Cannot assign an interviewer to a cancelled interview*");
+        }
+
+        [Fact]
+        public void ScreeningDecision_Create_WhenOverridingPassWithRejectWithoutReason_ShouldThrow()
+        {
+            var act = () => ScreeningDecision.Create(
+                applicationId: 1,
+                interviewId: 1,
+                decidedByUserId: 10,
+                decidedByRole: "HR",
+                decisionType: ScreeningDecisionType.Reject,
+                systemRecommendation: "Pass",
+                systemOverallScore: 9.0m,
+                evaluationSnapshot: new(),
+                scoredQuestionCount: 3,
+                totalQuestionCount: 3,
+                overrideReason: "",
+                notes: null);
+
+            act.Should().Throw<BusinessRuleException>()
+                .WithMessage("*Bắt buộc phải nhập lý do khi đưa ra quyết định khác với gợi ý sơ bộ*");
         }
     }
 }

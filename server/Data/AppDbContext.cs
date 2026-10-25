@@ -25,6 +25,8 @@ namespace EmployeeHRMS.Api.Data
         public DbSet<QuestionBankItem> QuestionBankItems { get; set; }
         public DbSet<InterviewAnswer> InterviewAnswers { get; set; }
         public DbSet<QuestionEvaluation> QuestionEvaluations { get; set; }
+        public DbSet<ScreeningDecision> ScreeningDecisions { get; set; }
+        public DbSet<AudioAccessLog> AudioAccessLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -259,6 +261,8 @@ namespace EmployeeHRMS.Api.Data
                     b.ToJson();
                 });
 
+                entity.Property(a => a.EditVersion).HasDefaultValue(1);
+
                 entity.Property(a => a.Flags)
                     .HasColumnType("text[]")
                     .HasDefaultValueSql("'{}'::text[]");
@@ -296,6 +300,72 @@ namespace EmployeeHRMS.Api.Data
                 entity.Property(e => e.PromptVersion).HasMaxLength(50).IsRequired();
                 entity.Property(e => e.Reason).HasMaxLength(100);
                 entity.Property(e => e.IsActive).HasDefaultValue(true);
+            });
+
+            // ============================================================
+            // Phase 5: Screening Decisions (Append-only Audit Trail)
+            // ============================================================
+            modelBuilder.Entity<ScreeningDecision>(entity =>
+            {
+                entity.HasOne(d => d.Application)
+                    .WithMany(a => a.ScreeningDecisions)
+                    .HasForeignKey(d => d.ApplicationId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.Interview)
+                    .WithMany(i => i.ScreeningDecisions)
+                    .HasForeignKey(d => d.InterviewId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.DecidedByUser)
+                    .WithMany()
+                    .HasForeignKey(d => d.DecidedByUserId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.Property(d => d.DecisionType).HasConversion<int>();
+                entity.Property(d => d.DecidedByRole).HasMaxLength(50).IsRequired();
+                entity.Property(d => d.SystemRecommendation).HasMaxLength(50).IsRequired();
+                entity.Property(d => d.SystemOverallScore).HasPrecision(5, 2);
+                entity.Property(d => d.OverrideReason).HasMaxLength(1000);
+                entity.Property(d => d.Notes).HasMaxLength(2000);
+
+                // JSONB snapshot of question evaluations at decision time
+                entity.OwnsMany(d => d.EvaluationSnapshot, b =>
+                {
+                    b.ToJson();
+                });
+
+                entity.HasIndex(d => d.ApplicationId);
+                entity.HasIndex(d => d.InterviewId);
+                entity.HasIndex(d => d.DecidedAt);
+            });
+
+            // ============================================================
+            // Phase 5: Audio Access Logs (Data Privacy Audit Trail - Decree 13)
+            // ============================================================
+            modelBuilder.Entity<AudioAccessLog>(entity =>
+            {
+                entity.HasOne(l => l.Interview)
+                    .WithMany(i => i.AudioAccessLogs)
+                    .HasForeignKey(l => l.InterviewId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(l => l.InterviewAnswer)
+                    .WithMany()
+                    .HasForeignKey(l => l.InterviewAnswerId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(l => l.User)
+                    .WithMany()
+                    .HasForeignKey(l => l.UserId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.Property(l => l.StorageKey).HasMaxLength(500).IsRequired();
+                entity.Property(l => l.UserRole).HasMaxLength(50).IsRequired();
+                entity.Property(l => l.IpAddress).HasMaxLength(100);
+
+                entity.HasIndex(l => l.InterviewId);
+                entity.HasIndex(l => l.AccessedAt);
             });
 
             // ============================================================
