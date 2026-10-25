@@ -482,24 +482,47 @@ namespace EmployeeHRMS.Api.Services
                     interviewId, aggResult.OverallScore, aggResult.Recommendation);
 
                 // Gửi notification real-time (D13)
-                await SendInterviewCompletedNotificationAsync(scope, interview);
+                await SendInterviewCompletedNotificationAsync(scope, context, interview);
             }
         }
 
         /// <summary>
         /// Gửi thông báo real-time khi buổi phỏng vấn được AI chấm điểm hoàn tất (D13).
         /// </summary>
-        private async Task SendInterviewCompletedNotificationAsync(IServiceScope scope, Interview interview)
+        private async Task SendInterviewCompletedNotificationAsync(IServiceScope scope, AppDbContext context, Interview interview)
         {
             try
             {
                 var notificationService = scope.ServiceProvider.GetService<INotificationService>();
                 if (notificationService == null) return;
 
+                string candidateName = "Ứng viên";
+                try
+                {
+                    var name = await context.Applications
+                        .Where(a => a.Id == interview.ApplicationId)
+                        .Select(a => a.Candidate != null ? a.Candidate.FullName : null)
+                        .FirstOrDefaultAsync();
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        candidateName = name;
+                    }
+                }
+                catch
+                {
+                    // Fallback to "Ứng viên" if Application/Candidate navigation is not seeded in testing
+                }
+
                 var payload = new Dictionary<string, string>
                 {
+                    ["interviewId"] = interview.Id.ToString(),
                     ["InterviewId"] = interview.Id.ToString(),
+                    ["candidateName"] = candidateName,
+                    ["CandidateName"] = candidateName,
+                    ["recommendation"] = interview.Recommendation?.ToString() ?? "N/A",
                     ["Recommendation"] = interview.Recommendation?.ToString() ?? "N/A",
+                    ["overallScore"] = interview.AiOverallScore?.ToString("F1") ?? "N/A",
                     ["OverallScore"] = interview.AiOverallScore?.ToString("F1") ?? "N/A"
                 };
 
@@ -511,7 +534,7 @@ namespace EmployeeHRMS.Api.Services
                     NotificationType.Success,
                     relatedEntity: "Interview",
                     relatedEntityId: interview.Id,
-                    fallbackMessage: $"Buổi phỏng vấn #{interview.Id} đã được AI chấm điểm: Đề xuất {interview.Recommendation}.");
+                    fallbackMessage: $"Buổi phỏng vấn #{interview.Id} của ứng viên {candidateName} đã được AI chấm điểm: Đề xuất {interview.Recommendation}.");
 
                 if (interview.InterviewerId.HasValue)
                 {
@@ -523,7 +546,7 @@ namespace EmployeeHRMS.Api.Services
                         NotificationType.Success,
                         relatedEntity: "Interview",
                         relatedEntityId: interview.Id,
-                        fallbackMessage: $"Buổi phỏng vấn #{interview.Id} bạn phụ trách đã được AI chấm điểm: Đề xuất {interview.Recommendation}.");
+                        fallbackMessage: $"Buổi phỏng vấn #{interview.Id} của ứng viên {candidateName} bạn phụ trách đã được AI chấm điểm: Đề xuất {interview.Recommendation}.");
                 }
             }
             catch (Exception ex)

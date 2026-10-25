@@ -310,13 +310,14 @@ export default function InterviewDetailView() {
                     </span>
                   )}
                 </div>
-                <div style={{ marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <input
                     type="text"
                     readOnly
                     value={interview.inviteUrl || `${window.location.origin}/candidate/interview/${interview.inviteToken}`}
                     style={{
                       flex: 1,
+                      minWidth: '220px',
                       padding: '0.35rem 0.65rem',
                       fontSize: '0.8rem',
                       fontFamily: 'monospace',
@@ -335,24 +336,22 @@ export default function InterviewDetailView() {
                   >
                     {isCopied ? 'Đã sao chép' : 'Sao chép link'}
                   </Button>
+                  {(isAdmin || isHR) && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={Mail}
+                      isLoading={isResendingInvite}
+                      onClick={handleResendInviteEmail}
+                      title="Gửi lại email mời chứa link làm bài cho ứng viên"
+                      style={{ flexShrink: 0 }}
+                    >
+                      Gửi Lại Email Mời
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
-
-            {(isAdmin || isHR) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={Mail}
-                  isLoading={isResendingInvite}
-                  onClick={handleResendInviteEmail}
-                  title="Gửi lại email mời chứa link làm bài cho ứng viên"
-                >
-                  Gửi Lại Email Mời
-                </Button>
-              </div>
-            )}
           </div>
         </Card>
       )}

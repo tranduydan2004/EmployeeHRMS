@@ -191,6 +191,9 @@ namespace EmployeeHRMS.Api.DTOs
         public int? LastEditedByUserId { get; set; }
         public DateTime? LastEditedAt { get; set; }
         public string? DetectedLanguage { get; set; }
+        public int TabSwitchCount { get; set; }
+        public double OutOfFocusDurationSeconds { get; set; }
+        public List<string> Flags { get; set; } = new();
         public SpeechMetrics? SpeechMetrics { get; set; }
         public string? ErrorMessage { get; set; }
         public DateTime CreatedAt { get; set; }
