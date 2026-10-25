@@ -27,6 +27,9 @@ import {
   Info,
   FileCheck2,
   Trash2,
+  Headphones,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export default function InterviewDetailView() {
@@ -39,11 +42,26 @@ export default function InterviewDetailView() {
     assignInterviewer,
     createScreeningDecision,
     erasePersonalData,
+    resendInvite,
     isAssigning,
     isDeciding,
     isErasingPersonalData,
+    isResendingInvite,
   } = useInterviewMutations();
   const { isAdmin, isHR } = usePermission();
+
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopyInviteLink = () => {
+    if (!interview?.inviteUrl) return;
+    navigator.clipboard.writeText(interview.inviteUrl);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2500);
+  };
+
+  const handleResendInviteEmail = async () => {
+    await resendInvite(interviewId);
+  };
 
   // Modals
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -260,6 +278,84 @@ export default function InterviewDetailView() {
           )}
         </div>
       </div>
+
+      {/* Candidate Portal & Audio Screening Invitation Banner */}
+      {(interview.inviteUrl || interview.inviteToken) && (
+        <Card style={{ padding: '1rem 1.25rem', backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '280px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  flexShrink: 0,
+                }}
+              >
+                <Headphones size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e3a8a' }}>
+                    Cổng Phỏng Vấn Audio Trực Tuyến (Candidate Portal)
+                  </h4>
+                  {interview.inviteExpiresAt && (
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <Clock size={12} /> Hạn chót: {new Date(interview.inviteExpiresAt).toLocaleString('vi-VN')}
+                    </span>
+                  )}
+                </div>
+                <div style={{ marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={interview.inviteUrl || `${window.location.origin}/candidate/interview/${interview.inviteToken}`}
+                    style={{
+                      flex: 1,
+                      padding: '0.35rem 0.65rem',
+                      fontSize: '0.8rem',
+                      fontFamily: 'monospace',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid #93c5fd',
+                      backgroundColor: '#fff',
+                      color: 'var(--slate-800)',
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={isCopied ? Check : Copy}
+                    onClick={handleCopyInviteLink}
+                    style={{ flexShrink: 0 }}
+                  >
+                    {isCopied ? 'Đã sao chép' : 'Sao chép link'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {(isAdmin || isHR) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={Mail}
+                  isLoading={isResendingInvite}
+                  onClick={handleResendInviteEmail}
+                  title="Gửi lại email mời chứa link làm bài cho ứng viên"
+                >
+                  Gửi Lại Email Mời
+                </Button>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Privacy Notice Banner if personal data has been erased */}
       {interview.isPersonalDataErased && (

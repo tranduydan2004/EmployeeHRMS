@@ -97,7 +97,7 @@ export function InterviewWelcomeCard() {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
             <div style={{ color: '#4f46e5', marginTop: '2px' }}><CheckCircle2 size={18} /></div>
             <div style={{ fontSize: '14px', color: '#334155', lineHeight: '1.5' }}>
-              <strong>Bộ đếm thời gian:</strong> Mỗi câu hỏi sẽ có thời gian chuẩn bị (20–40 giây) và thời gian trả lời (60–120 giây). Hệ thống sẽ tự động bắt đầu ghi âm và nộp bài khi hết giờ.
+              <strong>Bộ đếm thời gian:</strong> Mỗi câu hỏi sẽ có thời gian chuẩn bị (15–40 giây) và thời gian trả lời (60–120 giây). Hệ thống sẽ tự động bắt đầu ghi âm và nộp bài khi hết giờ.
             </div>
           </div>
 
@@ -127,7 +127,7 @@ export function InterviewWelcomeCard() {
           gap: '12px',
           cursor: 'pointer'
         }}
-        onClick={() => setConsent(!isConsentGiven)}
+          onClick={() => setConsent(!isConsentGiven)}
         >
           <input
             type="checkbox"

@@ -38,6 +38,10 @@ import {
   ArrowUpDown,
   FileCheck2,
   ExternalLink,
+  Headphones,
+  Copy,
+  Check,
+  Mail,
 } from 'lucide-react';
 
 /**
@@ -137,13 +141,28 @@ export default function InterviewList() {
     deleteInterview,
     assignInterviewer,
     createScreeningDecision,
+    resendInvite,
     isCreating,
     isDeleting,
     isAssigning,
     isDeciding,
+    isResendingInvite,
   } = useInterviewMutations();
 
   const { isAdmin, isHR } = usePermission();
+
+  const [copiedTokenId, setCopiedTokenId] = useState(null);
+
+  const handleCopyLink = (item) => {
+    if (!item.inviteUrl) return;
+    navigator.clipboard.writeText(item.inviteUrl);
+    setCopiedTokenId(item.id);
+    setTimeout(() => setCopiedTokenId(null), 2500);
+  };
+
+  const handleResendEmail = async (interviewId) => {
+    await resendInvite(interviewId);
+  };
 
   // Modals state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -707,6 +726,11 @@ export default function InterviewList() {
                       <Badge variant="secondary">
                         Đơn #{item.applicationId} &bull; {item.applicationStatus}
                       </Badge>
+                      {item.inviteToken && (
+                        <Badge variant="info" icon={Headphones}>
+                          Phỏng Vấn Audio
+                        </Badge>
+                      )}
                     </div>
 
                     <div
@@ -874,6 +898,33 @@ export default function InterviewList() {
                         Mở trang thẩm định
                       </Button>
                     </Link>
+
+                    {/* Copy Candidate Portal Link */}
+                    {item.inviteUrl && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={copiedTokenId === item.id ? Check : Copy}
+                        onClick={() => handleCopyLink(item)}
+                        title="Sao chép liên kết làm bài phỏng vấn trực tuyến để gửi ứng viên"
+                      >
+                        {copiedTokenId === item.id ? 'Đã sao chép link' : 'Sao chép link làm bài'}
+                      </Button>
+                    )}
+
+                    {/* Resend Email Invite */}
+                    {(isAdmin || isHR) && item.inviteUrl && item.status !== 'Completed' && item.status !== 'Cancelled' && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={Mail}
+                        onClick={() => handleResendEmail(item.id)}
+                        isLoading={isResendingInvite}
+                        title="Gửi lại thư mời phỏng vấn đến email ứng viên"
+                      >
+                        Gửi lại mail
+                      </Button>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
