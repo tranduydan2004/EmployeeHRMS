@@ -14,7 +14,10 @@ export const notificationTemplates = {
     `Bạn có lịch phỏng vấn mới vào lúc ${p.scheduledDate || ''}.`,
 
   INTERVIEW_ASSIGNED_INTERVIEWER: (p = {}) =>
-    `Bạn được phân công phỏng vấn ứng viên ${p.candidateName || 'Ứng viên'} vào lúc ${p.scheduledDate || ''}.`,
+    `Bạn được phân công phỏng vấn/đánh giá ứng viên ${p.candidateName || 'Ứng viên'}${p.scheduledDate ? ` vào lúc ${p.scheduledDate}` : ''}.`,
+
+  SCREENING_DECISION_RECORDED: (p = {}) =>
+    `Quyết định sơ loại cho ứng viên ${p.candidateName || 'Ứng viên'} (Phỏng vấn #${p.interviewId || ''}) đã được ghi nhận: ${p.decisionType || ''}.`,
 
   INTERVIEW_COMPLETED: (p = {}) =>
     `Buổi phỏng vấn #${p.interviewId || ''} của ứng viên ${p.candidateName || 'Ứng viên'} đã được hoàn tất.`,

@@ -13,7 +13,6 @@ import { Card, Button, Badge, Skeleton } from '@/components';
 import {
   Briefcase,
   Calendar,
-  Sparkles,
   Send,
   FileText,
   User,
@@ -220,11 +219,6 @@ export default function MyApplicationsList() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  {app.aiMatchScore && (
-                    <Badge variant="success" icon={Sparkles}>
-                      AI Match: {app.aiMatchScore}%
-                    </Badge>
-                  )}
                   <ApplicationStatusBadge status={app.status} />
 
                   {/* Cho phép rút đơn nếu trạng thái vẫn là Applied */}
@@ -242,25 +236,6 @@ export default function MyApplicationsList() {
                   )}
                 </div>
               </div>
-
-              {app.aiSummary && (
-                <div
-                  style={{
-                    marginTop: '1rem',
-                    padding: '0.875rem',
-                    backgroundColor: 'var(--slate-50)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-color)',
-                    fontSize: '0.875rem',
-                    color: 'var(--slate-700)',
-                  }}
-                >
-                  <strong style={{ color: 'var(--primary-700)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.25rem' }}>
-                    <Sparkles size={14} /> Đánh giá tự động từ AI:
-                  </strong>
-                  {app.aiSummary}
-                </div>
-              )}
             </Card>
           ))}
         </div>

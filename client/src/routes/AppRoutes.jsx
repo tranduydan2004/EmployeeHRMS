@@ -19,7 +19,7 @@ import { DepartmentList } from '../features/departments';
 import { JobPostingList, JobPostingDetail } from '../features/recruitment/jobs';
 import { CandidateTable } from '../features/recruitment/candidates';
 import { ApplicationTable, MyApplicationsList } from '../features/recruitment/applications';
-import { InterviewList } from '../features/interviews';
+import { InterviewList, InterviewDetailView } from '../features/interviews';
 import { CandidateInterviewPage } from '../features/candidatePortal';
 
 function HomeRedirect() {
@@ -117,6 +117,14 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={['Admin', 'HR', 'Interviewer']}>
               <InterviewList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/interviews/:id"
+          element={
+            <ProtectedRoute allowedRoles={['Admin', 'HR', 'Interviewer']}>
+              <InterviewDetailView />
             </ProtectedRoute>
           }
         />

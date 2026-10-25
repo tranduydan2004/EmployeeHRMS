@@ -19,12 +19,14 @@ import {
   Quote,
   Loader2,
   Tag,
+  Highlighter,
 } from 'lucide-react';
 import CompleteInterviewModal from './CompleteInterviewModal';
 import AudioAnswerPlayer from './AudioAnswerPlayer';
 import SpeechMetricsCard from './SpeechMetricsCard';
 import TranscriptEditorModal from './TranscriptEditorModal';
 import EvaluationAuditTrailModal from './EvaluationAuditTrailModal';
+import HighlightedTranscript, { findQuoteRanges } from './HighlightedTranscript';
 
 export default function QuestionEvaluationCard({ interview }) {
   const {
@@ -62,11 +64,13 @@ export default function QuestionEvaluationCard({ interview }) {
   const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [answerText, setAnswerText] = useState('');
 
-  // Phase 4: Modal states
+  // Phase 4 & 5: Evidence highlighting & Modal states
   const [transcriptModalQuestion, setTranscriptModalQuestion] = useState(null);
   const [auditTrailModalQuestion, setAuditTrailModalQuestion] = useState(null);
   const [expandedRubricQuestionId, setExpandedRubricQuestionId] = useState(null);
   const [reevaluatingQuestionId, setReevaluatingQuestionId] = useState(null);
+  const [isHighlightEnabled, setIsHighlightEnabled] = useState(true);
+  const [activeQuoteIndex, setActiveQuoteIndex] = useState(null);
 
   const handleAddQuestion = async (e) => {
     e.preventDefault();
@@ -452,42 +456,76 @@ export default function QuestionEvaluationCard({ interview }) {
                           )}
                         </div>
 
-                        {canEdit && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              icon={Edit3}
-                              onClick={() => setTranscriptModalQuestion(q)}
-                              title="Sửa bản bóc băng trước khi chấm lại"
-                            >
-                              Sửa Transcript
-                            </Button>
-
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              icon={RefreshCw}
-                              onClick={() => handleReevaluate(q.id)}
-                              disabled={isAnswerProcessing}
-                              isLoading={reevaluatingQuestionId === q.id}
+                        {/* Transcript Toolbar */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {activeEvaluation?.evidenceQuotes?.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setIsHighlightEnabled(!isHighlightEnabled)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                padding: '0.25rem 0.6rem',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                border: isHighlightEnabled ? '1px solid #f59e0b' : '1px solid var(--slate-300)',
+                                backgroundColor: isHighlightEnabled ? '#fef3c7' : '#ffffff',
+                                color: isHighlightEnabled ? '#b45309' : 'var(--slate-600)',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                              }}
                               title={
-                                isAnswerProcessing
-                                  ? 'Câu trả lời đang trong tiến trình xử lý'
-                                  : 'Kích hoạt AI chấm lại với barem và transcript hiện hành'
+                                isHighlightEnabled
+                                  ? 'Tắt làm nổi bật bằng chứng AI trong transcript'
+                                  : 'Bật làm nổi bật bằng chứng AI trong transcript'
                               }
                             >
-                              Re-evaluate
-                            </Button>
-                          </div>
-                        )}
+                              <Highlighter size={13} />
+                              <span>Highlight AI: {isHighlightEnabled ? 'BẬT' : 'TẮT'}</span>
+                            </button>
+                          )}
+
+                          {canEdit && (
+                            <>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                icon={Edit3}
+                                onClick={() => setTranscriptModalQuestion(q)}
+                                title="Sửa bản bóc băng trước khi chấm lại"
+                              >
+                                Sửa Transcript
+                              </Button>
+
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                icon={RefreshCw}
+                                onClick={() => handleReevaluate(q.id)}
+                                disabled={isAnswerProcessing}
+                                isLoading={reevaluatingQuestionId === q.id}
+                                title={
+                                  isAnswerProcessing
+                                    ? 'Câu trả lời đang trong tiến trình xử lý'
+                                    : 'Kích hoạt AI chấm lại với barem và transcript hiện hành'
+                                }
+                              >
+                                Re-evaluate
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
-                      <div style={{ color: 'var(--text-main)', lineHeight: 1.5, fontStyle: audioAnswer.effectiveTranscript ? 'normal' : 'italic' }}>
-                        {audioAnswer.effectiveTranscript || audioAnswer.transcript || (
-                          <span style={{ color: 'var(--text-muted)' }}>Chưa có nội dung bóc băng.</span>
-                        )}
-                      </div>
+                      {/* Highlighted Transcript Body */}
+                      <HighlightedTranscript
+                        transcript={audioAnswer.effectiveTranscript || audioAnswer.transcript || ''}
+                        evidenceQuotes={activeEvaluation?.evidenceQuotes || []}
+                        isHighlightEnabled={isHighlightEnabled}
+                        activeQuoteIndex={activeQuoteIndex}
+                      />
                     </div>
 
                     {/* Speech Metrics Telemetry */}
@@ -555,27 +593,77 @@ export default function QuestionEvaluationCard({ interview }) {
 
                         {activeEvaluation.evidenceQuotes && activeEvaluation.evidenceQuotes.length > 0 && (
                           <div style={{ marginTop: '0.25rem' }}>
-                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary-900)', display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.2rem' }}>
-                              <Quote size={12} />
-                              Trích dẫn từ câu trả lời:
+                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary-900)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.25rem', marginBottom: '0.35rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <Quote size={12} />
+                                <span>Trích dẫn bằng chứng từ câu trả lời ({activeEvaluation.evidenceQuotes.length}):</span>
+                              </div>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: 400 }}>
+                                (Bấm vào trích dẫn để định vị trong transcript)
+                              </span>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                              {activeEvaluation.evidenceQuotes.map((quote, qIdx) => (
-                                <div
-                                  key={qIdx}
-                                  style={{
-                                    padding: '0.25rem 0.5rem',
-                                    backgroundColor: '#ffffff',
-                                    borderRadius: '4px',
-                                    borderLeft: '3px solid var(--primary-500)',
-                                    fontSize: '0.75rem',
-                                    color: 'var(--slate-800)',
-                                    fontStyle: 'italic',
-                                  }}
-                                >
-                                  "{quote}"
-                                </div>
-                              ))}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                              {activeEvaluation.evidenceQuotes.map((quote, qIdx) => {
+                                const currentTranscript = audioAnswer.effectiveTranscript || audioAnswer.transcript || '';
+                                const isDirectlyMatched = findQuoteRanges(currentTranscript, [quote]).length > 0;
+                                const isSelected = activeQuoteIndex === qIdx;
+
+                                return (
+                                  <div
+                                    key={qIdx}
+                                    onClick={() => setActiveQuoteIndex(isSelected ? null : qIdx)}
+                                    style={{
+                                      padding: '0.35rem 0.6rem',
+                                      backgroundColor: isSelected ? '#fef3c7' : '#ffffff',
+                                      borderRadius: '4px',
+                                      borderLeft: isSelected ? '3px solid #b45309' : '3px solid var(--primary-500)',
+                                      border: isSelected ? '1px solid #f59e0b' : '1px solid var(--slate-200)',
+                                      fontSize: '0.75rem',
+                                      color: 'var(--slate-800)',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      gap: '0.5rem',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                    title="Bấm để làm nổi bật câu trích dẫn này trong bản bóc băng"
+                                  >
+                                    <div style={{ fontStyle: 'italic', flex: 1 }}>
+                                      "{quote}"
+                                    </div>
+                                    <div style={{ flexShrink: 0, fontSize: '0.7rem' }}>
+                                      {isDirectlyMatched ? (
+                                        <span
+                                          style={{
+                                            color: 'var(--success-text)',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.2rem',
+                                            fontWeight: 500,
+                                          }}
+                                        >
+                                          <CheckCircle size={11} />
+                                          Khớp transcript
+                                        </span>
+                                      ) : (
+                                        <span
+                                          style={{
+                                            color: 'var(--slate-500)',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.2rem',
+                                          }}
+                                          title="Trích dẫn tương đương hoặc transcript đã bị chỉnh sửa sau lần chấm này"
+                                        >
+                                          <AlertCircle size={11} />
+                                          Diễn giải / Đã sửa
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}

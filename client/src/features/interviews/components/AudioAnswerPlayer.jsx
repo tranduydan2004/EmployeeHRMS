@@ -17,7 +17,10 @@ export default function AudioAnswerPlayer({ storageKey, durationSeconds = 0 }) {
     let active = true;
     let url = null;
 
-    if (!storageKey) return;
+    if (!storageKey) {
+      setLoadError('File ghi âm đã được xóa theo chính sách bảo mật dữ liệu cá nhân.');
+      return;
+    }
 
     const loadAudio = async () => {
       try {
@@ -29,7 +32,12 @@ export default function AudioAnswerPlayer({ storageKey, durationSeconds = 0 }) {
         setBlobUrl(url);
       } catch (err) {
         if (!active) return;
-        setLoadError('Không thể tải file ghi âm.');
+        const status = err.response?.status;
+        if (status === 410 || status === 404) {
+          setLoadError('File ghi âm đã được xóa theo chính sách quyền riêng tư.');
+        } else {
+          setLoadError('Không thể tải file ghi âm.');
+        }
       } finally {
         if (active) setIsLoading(false);
       }
