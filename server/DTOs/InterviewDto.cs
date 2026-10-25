@@ -36,6 +36,10 @@ namespace EmployeeHRMS.Api.DTOs
     {
         public int Id { get; set; }
         public int ApplicationId { get; set; }
+        public string CandidateName { get; set; } = string.Empty;
+        public string CandidateEmail { get; set; } = string.Empty;
+        public string JobTitle { get; set; } = string.Empty;
+        public string ApplicationStatus { get; set; } = string.Empty;
         public int? InterviewerId { get; set; }
         public string? InterviewerName { get; set; }
         public DateTime ScheduledDate { get; set; }
@@ -43,6 +47,7 @@ namespace EmployeeHRMS.Api.DTOs
         public decimal? AiOverallScore { get; set; }
         public string? AiOverallSummary { get; set; }
         public string? Recommendation { get; set; }
+        public bool IsPersonalDataErased { get; set; }
 
         // Nested projection: List<InterviewQuestion> → List<InterviewQuestionResponseDto>
         public List<InterviewQuestionResponseDto> Questions { get; set; } = new();
@@ -77,12 +82,59 @@ namespace EmployeeHRMS.Api.DTOs
         public string? Summary { get; set; }
     }
 
-    // === DTO chỉnh sửa transcript cho HR / Interviewer (Phase 4) ===
+    // === DTO phân công Interviewer cho buổi phỏng vấn (Phase 5) ===
+    public class AssignInterviewerDto
+    {
+        [Required(ErrorMessage = "Interviewer ID is required.")]
+        [Range(1, int.MaxValue, ErrorMessage = "Interviewer ID must be a positive integer.")]
+        public int InterviewerId { get; set; }
+    }
+
+    // === DTO chỉnh sửa transcript cho HR / Interviewer (Phase 4 & 5) ===
     public class UpdateTranscriptDto
     {
         [Required(ErrorMessage = "Transcript is required.")]
         [StringLength(10000, MinimumLength = 1, ErrorMessage = "Transcript must be between 1 and 10000 characters.")]
         public string Transcript { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Phiên bản client đang nhìn thấy (Optimistic Concurrency).
+        /// Nếu server có EditVersion > ExpectedVersion -> trả 409 Conflict.
+        /// </summary>
+        public int? ExpectedVersion { get; set; }
+    }
+
+    // === DTO tạo quyết định sơ loại bất biến (Phase 5) ===
+    public class ScreeningDecisionCreateDto
+    {
+        [Required(ErrorMessage = "Decision type is required.")]
+        public Models.ScreeningDecisionType DecisionType { get; set; }
+
+        [StringLength(1000, ErrorMessage = "Override reason must not exceed 1000 characters.")]
+        public string? OverrideReason { get; set; }
+
+        [StringLength(2000, ErrorMessage = "Notes must not exceed 2000 characters.")]
+        public string? Notes { get; set; }
+    }
+
+    // === DTO trả về quyết định sơ loại (Phase 5) ===
+    public class ScreeningDecisionResponseDto
+    {
+        public int Id { get; set; }
+        public int ApplicationId { get; set; }
+        public int InterviewId { get; set; }
+        public int DecidedByUserId { get; set; }
+        public string? DecidedByUserName { get; set; }
+        public string DecidedByRole { get; set; } = string.Empty;
+        public DateTime DecidedAt { get; set; }
+        public string DecisionType { get; set; } = string.Empty;
+        public string SystemRecommendation { get; set; } = string.Empty;
+        public decimal? SystemOverallScore { get; set; }
+        public List<QuestionEvaluationSnapshotItem> EvaluationSnapshot { get; set; } = new();
+        public int ScoredQuestionCount { get; set; }
+        public int TotalQuestionCount { get; set; }
+        public string? OverrideReason { get; set; }
+        public string? Notes { get; set; }
     }
 
     // === DTO kết quả kích hoạt Re-evaluate (Phase 4) ===
@@ -118,7 +170,7 @@ namespace EmployeeHRMS.Api.DTOs
         public bool IsActive { get; set; }
     }
 
-    // === DTO chi tiết InterviewAnswer cho HR / Interviewer (Phase 4) ===
+    // === DTO chi tiết InterviewAnswer cho HR / Interviewer (Phase 4 & 5) ===
     public class InterviewAnswerDetailDto
     {
         public int Id { get; set; }
@@ -132,6 +184,7 @@ namespace EmployeeHRMS.Api.DTOs
         public string? Transcript { get; set; }
         public string? EditedTranscript { get; set; }
         public string? EffectiveTranscript { get; set; }
+        public int EditVersion { get; set; }
         public int? LastEditedByUserId { get; set; }
         public DateTime? LastEditedAt { get; set; }
         public string? DetectedLanguage { get; set; }
@@ -139,6 +192,28 @@ namespace EmployeeHRMS.Api.DTOs
         public string? ErrorMessage { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
+        public bool IsAudioDeleted { get; set; }
         public List<QuestionEvaluationResponseDto> Evaluations { get; set; } = new();
+    }
+
+    // === DTO yêu cầu xóa dữ liệu cá nhân (Phase 5 - Step 6: Right to Erasure) ===
+    public class ErasePersonalDataDto
+    {
+        [Required(ErrorMessage = "Lý do xóa dữ liệu cá nhân là bắt buộc.")]
+        [StringLength(500, MinimumLength = 5, ErrorMessage = "Lý do xóa phải từ 5 đến 500 ký tự.")]
+        public string Reason { get; set; } = string.Empty;
+    }
+
+    // === DTO kết quả xóa dữ liệu cá nhân (Phase 5 - Step 6) ===
+    public class ErasePersonalDataResponseDto
+    {
+        public int InterviewId { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public int ErasedAnswersCount { get; set; }
+        public int ErasedAudioFilesCount { get; set; }
+        public int ErasedEvaluationsCount { get; set; }
+        public DateTime ErasedAt { get; set; } = DateTime.UtcNow;
+        public string ErasedByUserName { get; set; } = string.Empty;
+        public string Reason { get; set; } = string.Empty;
     }
 }

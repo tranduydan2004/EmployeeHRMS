@@ -11,7 +11,7 @@ namespace EmployeeHRMS.Api.Authorization
     /// InterviewAuthorizationHandler — dùng cho GetById/Create/Delete/Evaluate.
     /// Admin, HR: Succeed mọi operation.
     /// Interviewer: Succeed Read/Evaluate nếu interview.InterviewerId == currentUserId.
-    /// Candidate: Succeed Read nếu interview.Application.Candidate.UserId == currentUserId.
+    /// Candidate: Tuyệt đối KHÔNG có quyền truy cập vào Interview dashboard resource.
     /// </summary>
     public class InterviewAuthorizationHandler
         : AuthorizationHandler<OperationAuthorizationRequirement, Interview>
@@ -52,19 +52,8 @@ namespace EmployeeHRMS.Api.Authorization
                 return;
             }
 
-            // Candidate -> Succeed Read nếu interview thuộc Application của Candidate sở hữu
-            if (role == nameof(UserRole.Candidate) && requirement.Name == nameof(ResourceOperations.Read))
-            {
-                var candidateUserId = await _context.Applications
-                    .Where(a => a.Id == resource.ApplicationId)
-                    .Select(a => a.Candidate.UserId)
-                    .FirstOrDefaultAsync();
-
-                if (candidateUserId.HasValue && candidateUserId.Value == currentUserId)
-                {
-                    context.Succeed(requirement);
-                }
-            }
+            // Candidate/Employee/Anonymous: Không cấp quyền Read hay Evaluate trên Interview entity
+            await Task.CompletedTask;
         }
     }
 }

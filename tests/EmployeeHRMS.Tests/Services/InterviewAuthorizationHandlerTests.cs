@@ -138,14 +138,15 @@ namespace EmployeeHRMS.Tests.Services
         }
 
         [Fact]
-        public async Task CandidateOwner_CanRead_CannotEvaluate()
+        public async Task CandidateOwner_CannotRead_CannotEvaluate()
         {
             var interview = await _context.Interviews.FirstAsync(i => i.Id == 1);
             var user = CreateUserPrincipal(100, "Candidate"); // Candidate UserId = 100
 
+            // Phase 5 RBAC Review: Ứng viên tuyệt đối không được đọc Interview entity (tránh lộ rubrics, AI feedback, barem điểm)
             var readContext = new AuthorizationHandlerContext(new[] { ResourceOperations.Read }, user, interview);
             await _handler.HandleAsync(readContext);
-            readContext.HasSucceeded.Should().BeTrue();
+            readContext.HasSucceeded.Should().BeFalse();
 
             var evalContext = new AuthorizationHandlerContext(new[] { ResourceOperations.Evaluate }, user, interview);
             await _handler.HandleAsync(evalContext);

@@ -41,8 +41,9 @@ namespace EmployeeHRMS.Api.Controllers
             _audioIngestionService = audioIngestionService;
         }
 
-        // GET: api/interviews — Lọc tự động theo Role trong Service
+        // GET: api/interviews — Lọc tự động theo Role trong Service (Admin, HR, Interviewer)
         [HttpGet]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
         public async Task<IActionResult> GetAll([FromQuery] PaginationParams paginationParams)
         {
             var interviews = await _interviewService.GetAllAsync(paginationParams);
@@ -51,6 +52,7 @@ namespace EmployeeHRMS.Api.Controllers
 
         // GET: api/interviews/{id} — Resource-Based Authorization
         [HttpGet("{id}")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
         public async Task<IActionResult> GetById(int id)
         {
             var interview = await _interviewService.GetEntityByIdAsync(id)
@@ -65,6 +67,7 @@ namespace EmployeeHRMS.Api.Controllers
 
         // GET: api/interviews/by-application/{applicationId}
         [HttpGet("by-application/{applicationId}")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
         public async Task<IActionResult> GetByApplication(int applicationId)
         {
             var interviews = await _interviewService.GetByApplicationAsync(applicationId);
@@ -335,27 +338,22 @@ namespace EmployeeHRMS.Api.Controllers
         /// GET: api/interviews/audio/{*storageKey}
         /// Stream file ghi âm phục vụ playback trên web (Admin, HR, Interviewer).
         /// Hỗ trợ HTTP 206 Partial Content để tua audio mượt mà.
+        /// Ghi nhận AudioAccessLog bảo vệ quyền riêng tư cá nhân theo Luật Bảo vệ dữ liệu cá nhân (Luật số 91/2025/QH15).
         /// </summary>
         [HttpGet("audio/{*storageKey}")]
         [Authorize(Roles = "Admin,HR,Interviewer")]
         public async Task<IActionResult> StreamAudio(
             string storageKey,
-            [FromServices] IAudioStorageService audioStorageService,
             CancellationToken cancellationToken)
         {
-            var stream = await audioStorageService.GetAudioStreamAsync(storageKey, cancellationToken);
+            var userId = User.GetUserId() ?? 0;
+            var role = User.GetRole() ?? string.Empty;
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
 
-            var mimeType = "audio/webm";
-            if (storageKey.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) || storageKey.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase))
-                mimeType = "audio/mp4";
-            else if (storageKey.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
-                mimeType = "audio/wav";
-            else if (storageKey.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
-                mimeType = "audio/mpeg";
-            else if (storageKey.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
-                mimeType = "audio/ogg";
+            var (stream, contentType) = await _interviewService.GetAudioStreamWithAccessLogAsync(
+                storageKey, userId, role, ipAddress, cancellationToken);
 
-            return File(stream, mimeType, enableRangeProcessing: true);
+            return File(stream, contentType, enableRangeProcessing: true);
         }
 
         /// <summary>
@@ -396,7 +394,7 @@ namespace EmployeeHRMS.Api.Controllers
 
             var currentUserId = User.GetUserId() ?? 0;
             var result = await _interviewService.UpdateTranscriptAsync(
-                id, questionId, dto.Transcript, currentUserId, cancellationToken);
+                id, questionId, dto.Transcript, currentUserId, dto.ExpectedVersion, cancellationToken);
 
             return Ok(result);
         }
@@ -463,6 +461,122 @@ namespace EmployeeHRMS.Api.Controllers
             if (!authResult.Succeeded) return Forbid();
 
             var result = await _interviewService.GetQuestionEvaluationsAsync(id, questionId, cancellationToken);
+            return Ok(result);
+        }
+
+        // ============================================================
+        // HR/Interviewer Review & Governance (Phase 5)
+        // ============================================================
+
+        /// <summary>
+        /// PATCH: api/interviews/{id}/assign-interviewer — Phân công Interviewer phụ trách (Admin, HR)
+        /// </summary>
+        [HttpPatch("{id}/assign-interviewer")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> AssignInterviewer(
+            int id,
+            [FromBody] AssignInterviewerDto dto,
+            CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.AssignInterviewerAsync(id, dto.InterviewerId, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// POST: api/interviews/{id}/screening-decision — Ghi nhận quyết định sơ loại bất biến (Admin, HR)
+        /// </summary>
+        [HttpPost("{id}/screening-decision")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> CreateScreeningDecision(
+            int id,
+            [FromBody] ScreeningDecisionCreateDto dto,
+            CancellationToken cancellationToken)
+        {
+            var currentUserId = User.GetUserId() ?? 0;
+            var currentRole = User.GetRole() ?? nameof(UserRole.HR);
+
+            var result = await _interviewService.CreateScreeningDecisionAsync(
+                id, dto, currentUserId, currentRole, cancellationToken);
+
+            return CreatedAtAction(nameof(GetScreeningDecisions), new { id }, result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/{id}/screening-decisions — Lịch sử quyết định sơ loại (Admin, HR, Interviewer)
+        /// </summary>
+        [HttpGet("{id}/screening-decisions")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> GetScreeningDecisions(
+            int id,
+            CancellationToken cancellationToken)
+        {
+            var interview = await _interviewService.GetEntityByIdAsync(id)
+                ?? throw new NotFoundException("Interview", id);
+
+            var authResult = await _authorizationService.AuthorizeAsync(User, interview, ResourceOperations.Read);
+            if (!authResult.Succeeded) return Forbid();
+
+            var result = await _interviewService.GetScreeningDecisionsAsync(id, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/dashboard-summary
+        /// Danh sách phỏng vấn sơ loại tối ưu hóa cho Dashboard (không tải transcript nặng, hỗ trợ lọc và sắp xếp nulls-last).
+        /// </summary>
+        [HttpGet("dashboard-summary")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> GetDashboardSummary(
+            [FromQuery] InterviewDashboardFilterParams filters,
+            CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.GetDashboardSummaryAsync(filters, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/dashboard-stats
+        /// Thống kê nhanh các chỉ số KPI cho Dashboard phỏng vấn sơ loại (Executive Summary).
+        /// </summary>
+        [HttpGet("dashboard-stats")]
+        [Authorize(Roles = "Admin,HR,Interviewer")]
+        public async Task<IActionResult> GetDashboardStats(CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.GetDashboardStatsAsync(cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// GET: api/interviews/available-interviewers
+        /// Danh sách người phỏng vấn khả dụng để phân công (Admin, HR).
+        /// </summary>
+        [HttpGet("available-interviewers")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> GetAvailableInterviewers(CancellationToken cancellationToken)
+        {
+            var result = await _interviewService.GetAvailableInterviewersAsync(cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// DELETE: api/interviews/{id}/personal-data
+        /// POST: api/interviews/{id}/erase-personal-data
+        /// Xóa dữ liệu cá nhân (file audio, transcript, trích dẫn bằng chứng và phân tích AI) của buổi phỏng vấn.
+        /// Chỉ Admin và HR có quyền thực hiện theo luật số 91/2025/QH15.
+        /// </summary>
+        [HttpDelete("{id:int}/personal-data")]
+        [HttpPost("{id:int}/erase-personal-data")]
+        [Authorize(Roles = "Admin,HR")]
+        public async Task<IActionResult> ErasePersonalData(
+            int id,
+            [FromBody] ErasePersonalDataDto dto,
+            CancellationToken cancellationToken)
+        {
+            var user = HttpContext.User;
+            var userId = user.GetUserId() ?? 0;
+            var userRole = user.GetRole() ?? string.Empty;
+
+            var result = await _interviewService.ErasePersonalDataAsync(id, dto, userId, userRole, cancellationToken);
             return Ok(result);
         }
     }

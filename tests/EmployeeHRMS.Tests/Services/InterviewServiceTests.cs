@@ -24,6 +24,8 @@ namespace EmployeeHRMS.Tests.Services
         private readonly Mock<IHttpContextAccessor> _httpContextAccessor;
         private readonly Mock<IEmailService> _emailServiceMock;
         private readonly Mock<IAudioTranscriptionQueue> _queueMock;
+        private readonly Mock<INotificationService> _notificationServiceMock;
+        private readonly Mock<IAudioStorageService> _audioStorageServiceMock;
         private readonly EventLogger _eventLogger;
         private readonly AudioInterviewOptions _options;
 
@@ -39,6 +41,8 @@ namespace EmployeeHRMS.Tests.Services
             _httpContextAccessor = new Mock<IHttpContextAccessor>();
             _emailServiceMock = new Mock<IEmailService>();
             _queueMock = new Mock<IAudioTranscriptionQueue>();
+            _notificationServiceMock = new Mock<INotificationService>();
+            _audioStorageServiceMock = new Mock<IAudioStorageService>();
 
             _options = new AudioInterviewOptions
             {
@@ -56,7 +60,9 @@ namespace EmployeeHRMS.Tests.Services
                 _httpContextAccessor.Object,
                 Options.Create(_options),
                 _emailServiceMock.Object,
-                _queueMock.Object);
+                _queueMock.Object,
+                audioStorageService: _audioStorageServiceMock.Object,
+                notificationService: _notificationServiceMock.Object);
         }
 
         private void SetupUserContext(string role, int userId)
@@ -350,9 +356,9 @@ namespace EmployeeHRMS.Tests.Services
             result.JobTitle.Should().Be(".NET Senior Engineer");
             result.InviteExpiresAt.Should().BeAfter(DateTime.UtcNow.AddDays(4.9));
 
-            // Verify Application state transition
+            // Verify Application state transition: audio screening stays in Screening stage
             var updatedApp = await _context.Applications.FindAsync(20);
-            updatedApp!.Status.Should().Be(ApplicationStatus.Interviewing);
+            updatedApp!.Status.Should().Be(ApplicationStatus.Screening);
 
             // Verify Interview in DB
             var dbInterview = await _context.Interviews
@@ -960,6 +966,557 @@ namespace EmployeeHRMS.Tests.Services
             results.Should().ContainSingle();
             results[0].InterviewAnswerId.Should().Be(a1.Id);
             results[0].Score.Should().Be(7.5m);
+        }
+
+        [Fact]
+        public async Task UpdateTranscriptAsync_WhenExpectedVersionMismatches_ShouldThrowConflictException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var q = new InterviewQuestion { InterviewId = interview.Id, Question = "Q1", OrderIndex = 1 };
+            var a = new InterviewAnswer { InterviewId = interview.Id, InterviewQuestion = q, AudioStorageKey = "a.webm" };
+            a.StartTranscribing();
+            a.CompleteTranscription("Original transcript"); // Status = Scoring
+            // Transition to Completed so HR can edit
+            a.CompleteScoring(8.0m, "Feedback");
+
+            _context.InterviewQuestions.Add(q);
+            _context.InterviewAnswers.Add(a);
+            await _context.SaveChangesAsync();
+
+            // First edit advances EditVersion to 2
+            await _service.UpdateTranscriptAsync(interview.Id, q.Id, "Edited once", 10, expectedVersion: 1);
+
+            // Act — another user tries to edit expecting v1 (when current is v2)
+            var act = () => _service.UpdateTranscriptAsync(interview.Id, q.Id, "Edited twice with stale version", 11, expectedVersion: 1);
+
+            // Assert
+            await act.Should().ThrowAsync<ConflictException>()
+                .WithMessage("*Bản bóc băng đã được cập nhật bởi người khác*");
+        }
+
+        [Fact]
+        public async Task AssignInterviewerAsync_WhenValid_ShouldAssignInterviewer()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i => i.MarkInProgress());
+            var interviewerUser = new ApplicationUser("interviewer@hrms.com", "hash", UserRole.Interviewer);
+            _context.Users.Add(interviewerUser);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var result = await _service.AssignInterviewerAsync(interview.Id, interviewerUser.Id);
+
+            // Assert
+            result.InterviewerId.Should().Be(interviewerUser.Id);
+            var dbInterview = await _context.Interviews.FindAsync(interview.Id);
+            dbInterview!.InterviewerId.Should().Be(interviewerUser.Id);
+        }
+
+        [Fact]
+        public async Task GetDashboardSummaryAsync_Admin_ReturnsProjectedSummaries()
+        {
+            // Arrange
+            SetupUserContext("Admin", 1);
+            var interview1 = await CreateTestInterviewAsync(i =>
+            {
+                i.MarkInProgress();
+                i.SetAggregationResult(8.5m, InterviewRecommendation.Pass, "Good");
+                i.Complete();
+            });
+            var interview2 = await CreateTestInterviewAsync(i =>
+            {
+                i.SetAggregationResult(null, null, null);
+            });
+
+            // Act
+            var result = await _service.GetDashboardSummaryAsync(new InterviewDashboardFilterParams
+            {
+                PageNumber = 1,
+                PageSize = 10
+            });
+
+            // Assert
+            result.Should().NotBeNull();
+            result.TotalCount.Should().Be(2);
+            result.Items.Should().HaveCount(2);
+            result.Items.Any(x => x.Id == interview1.Id && x.Recommendation == "Pass" && x.AiOverallScore == 8.5m).Should().BeTrue();
+            result.Items.Any(x => x.Id == interview2.Id && x.AiOverallScore == null).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task GetDashboardSummaryAsync_Interviewer_FiltersToAssignedInterviews()
+        {
+            // Arrange
+            var interviewerId = 99;
+            var otherInterviewerId = 100;
+            var myInterview = await CreateTestInterviewAsync(i => i.AssignInterviewer(interviewerId));
+            var otherInterview = await CreateTestInterviewAsync(i => i.AssignInterviewer(otherInterviewerId));
+
+            SetupUserContext("Interviewer", interviewerId);
+
+            // Act
+            var result = await _service.GetDashboardSummaryAsync(new InterviewDashboardFilterParams
+            {
+                PageNumber = 1,
+                PageSize = 10
+            });
+
+            // Assert
+            result.TotalCount.Should().Be(1);
+            result.Items.Should().ContainSingle();
+            result.Items[0].Id.Should().Be(myInterview.Id);
+        }
+
+        [Fact]
+        public async Task GetDashboardSummaryAsync_SortByAiOverallScoreDescending_PlacesNullsLast()
+        {
+            // Arrange
+            SetupUserContext("Admin", 1);
+            var scoredLow = await CreateTestInterviewAsync(i => i.SetAggregationResult(5.0m, InterviewRecommendation.Consider));
+            var scoredHigh = await CreateTestInterviewAsync(i => i.SetAggregationResult(9.0m, InterviewRecommendation.Pass));
+            var unscored = await CreateTestInterviewAsync(i => i.SetAggregationResult(null, null));
+
+            // Act
+            var result = await _service.GetDashboardSummaryAsync(new InterviewDashboardFilterParams
+            {
+                SortBy = "aioverallscore",
+                IsDescending = true,
+                PageNumber = 1,
+                PageSize = 10
+            });
+
+            // Assert
+            result.Items.Should().HaveCount(3);
+            result.Items[0].Id.Should().Be(scoredHigh.Id);
+            result.Items[1].Id.Should().Be(scoredLow.Id);
+            result.Items[2].Id.Should().Be(unscored.Id); // null is last!
+        }
+
+        [Fact]
+        public async Task GetDashboardStatsAsync_ReturnsCorrectKpiCounts()
+        {
+            // Arrange
+            SetupUserContext("HR", 2);
+            var completedPass = await CreateTestInterviewAsync(i =>
+            {
+                i.MarkInProgress();
+                i.SetAggregationResult(8.5m, InterviewRecommendation.Pass);
+                i.Complete();
+            });
+            var scheduled = await CreateTestInterviewAsync(i => i.Invite(TimeSpan.FromDays(2)));
+
+            // Act
+            var stats = await _service.GetDashboardStatsAsync();
+
+            // Assert
+            stats.TotalInterviews.Should().Be(2);
+            stats.Completed.Should().Be(1);
+            stats.RecommendedPass.Should().Be(1);
+            stats.PendingDecisions.Should().Be(1); // completed without decision
+            stats.Decided.Should().Be(0);
+        }
+
+        [Fact]
+        public async Task GetAvailableInterviewersAsync_ReturnsOnlyInterviewerRoles()
+        {
+            // Arrange
+            var interviewer = new ApplicationUser("int1@hrms.com", "hash", UserRole.Interviewer);
+            var hr = new ApplicationUser("hr@hrms.com", "hash", UserRole.HR);
+            var candidate = new ApplicationUser("cand@hrms.com", "hash", UserRole.Candidate);
+
+            _context.Users.AddRange(interviewer, hr, candidate);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var list = await _service.GetAvailableInterviewersAsync();
+
+            // Assert
+            list.Should().Contain(u => u.Id == interviewer.Id && u.Email == "int1@hrms.com");
+            list.Should().NotContain(u => u.Id == hr.Id);
+            list.Should().NotContain(u => u.Id == candidate.Id);
+        }
+
+        [Fact]
+        public async Task GetByIdAsync_WhenFound_MapsCandidateAndJobDetails()
+        {
+            // Arrange
+            SetupUserContext("Admin", 1);
+            var interview = await CreateTestInterviewAsync(i =>
+            {
+                i.SetAggregationResult(9.0m, InterviewRecommendation.Pass, "Top candidate");
+            });
+
+            // Act
+            var result = await _service.GetByIdAsync(interview.Id);
+
+            // Assert
+            result.Should().NotBeNull();
+            result!.Id.Should().Be(interview.Id);
+            result.CandidateName.Should().Be("Candidate");
+            result.CandidateEmail.Should().Be("c@test.com");
+            result.JobTitle.Should().Be("Developer");
+            result.ApplicationStatus.Should().Be("Applied");
+            result.AiOverallScore.Should().Be(9.0m);
+            result.Recommendation.Should().Be("Pass");
+        }
+
+        [Fact]
+        public async Task CreateScreeningDecisionAsync_WhenOverrideWithoutReason_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i =>
+            {
+                i.SetAggregationResult(8.5m, InterviewRecommendation.Pass, "Strong candidate");
+            });
+
+            var dto = new ScreeningDecisionCreateDto
+            {
+                DecisionType = ScreeningDecisionType.Reject,
+                OverrideReason = null,
+                Notes = "Rejecting despite Pass"
+            };
+
+            // Act
+            var act = () => _service.CreateScreeningDecisionAsync(interview.Id, dto, 1, "Admin");
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*Bắt buộc phải nhập lý do khi đưa ra quyết định khác với gợi ý sơ bộ của hệ thống.*");
+        }
+
+        [Fact]
+        public async Task CreateScreeningDecisionAsync_WhenAdvanceToInDepth_TransitionsApplicationToInterviewing()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i =>
+            {
+                i.SetAggregationResult(8.5m, InterviewRecommendation.Pass, "Strong candidate");
+            });
+
+            var app = await _context.Applications.FindAsync(interview.ApplicationId);
+            app!.TransitionTo(ApplicationStatus.Screening);
+            await _context.SaveChangesAsync();
+
+            var dto = new ScreeningDecisionCreateDto
+            {
+                DecisionType = ScreeningDecisionType.AdvanceToInDepth,
+                Notes = "Chuyển sang phỏng vấn vòng 2"
+            };
+
+            // Act
+            var result = await _service.CreateScreeningDecisionAsync(interview.Id, dto, 1, "HR");
+
+            // Assert
+            result.Should().NotBeNull();
+            result.DecisionType.Should().Be("AdvanceToInDepth");
+            result.SystemRecommendation.Should().Be("Pass");
+
+            var updatedApp = await _context.Applications.FindAsync(interview.ApplicationId);
+            updatedApp!.Status.Should().Be(ApplicationStatus.Interviewing);
+
+            var savedDecisions = await _context.ScreeningDecisions.Where(d => d.InterviewId == interview.Id).ToListAsync();
+            savedDecisions.Should().HaveCount(1);
+            savedDecisions[0].DecisionType.Should().Be(ScreeningDecisionType.AdvanceToInDepth);
+        }
+
+        [Fact]
+        public async Task CreateScreeningDecisionAsync_WhenReject_TransitionsApplicationToRejected()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync(i =>
+            {
+                i.SetAggregationResult(3.0m, InterviewRecommendation.Reject, "Weak candidate");
+            });
+
+            var app = await _context.Applications.FindAsync(interview.ApplicationId);
+            app!.TransitionTo(ApplicationStatus.Screening);
+            await _context.SaveChangesAsync();
+
+            var dto = new ScreeningDecisionCreateDto
+            {
+                DecisionType = ScreeningDecisionType.Reject,
+                Notes = "Không đạt yêu cầu"
+            };
+
+            // Act
+            var result = await _service.CreateScreeningDecisionAsync(interview.Id, dto, 1, "HR");
+
+            // Assert
+            result.Should().NotBeNull();
+            result.DecisionType.Should().Be("Reject");
+
+            var updatedApp = await _context.Applications.FindAsync(interview.ApplicationId);
+            updatedApp!.Status.Should().Be(ApplicationStatus.Rejected);
+        }
+
+        [Fact]
+        public async Task CreateScreeningDecisionAsync_SendsNotificationsToStakeholders()
+        {
+            // Arrange
+            var interviewer = new ApplicationUser("interviewer@hrms.com", "hash", UserRole.Interviewer);
+            var candidateUser = new ApplicationUser("candidate@hrms.com", "hash", UserRole.Candidate);
+            _context.Users.AddRange(interviewer, candidateUser);
+            await _context.SaveChangesAsync();
+
+            var interview = await CreateTestInterviewAsync(i =>
+            {
+                i.SetAggregationResult(8.5m, InterviewRecommendation.Pass, "Strong candidate");
+            });
+
+            interview.AssignInterviewer(interviewer.Id);
+
+            var app = await _context.Applications.Include(a => a.Candidate).FirstOrDefaultAsync(a => a.Id == interview.ApplicationId);
+            app!.Candidate.UserId = candidateUser.Id;
+            app.TransitionTo(ApplicationStatus.Screening);
+            await _context.SaveChangesAsync();
+
+            var dto = new ScreeningDecisionCreateDto
+            {
+                DecisionType = ScreeningDecisionType.AdvanceToInDepth,
+                Notes = "Passed screening"
+            };
+
+            // Act
+            await _service.CreateScreeningDecisionAsync(interview.Id, dto, currentUserId: 99, currentRole: "Admin");
+
+            // Assert
+            // Interviewer receives SCREENING_DECISION_RECORDED
+            _notificationServiceMock.Verify(n => n.SendToUserAsync(
+                interviewer.Id,
+                "Quyết định sơ loại mới",
+                "SCREENING_DECISION_RECORDED",
+                It.IsAny<Dictionary<string, string>>(),
+                NotificationType.Info,
+                "Interview",
+                interview.Id,
+                It.IsAny<string?>()), Times.Once);
+
+            // Candidate receives APPLICATION_STATUS_CHANGED
+            _notificationServiceMock.Verify(n => n.SendToUserAsync(
+                candidateUser.Id,
+                "Cập nhật trạng thái ứng tuyển",
+                "APPLICATION_STATUS_CHANGED",
+                It.IsAny<Dictionary<string, string>>(),
+                NotificationType.Success,
+                "Application",
+                app.Id,
+                It.IsAny<string?>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task AssignInterviewerAsync_WhenCancelled_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interviewer = new ApplicationUser("interviewer2@hrms.com", "hash", UserRole.Interviewer);
+            _context.Users.Add(interviewer);
+            await _context.SaveChangesAsync();
+
+            var interview = await CreateTestInterviewAsync(i =>
+            {
+                i.Cancel();
+            });
+
+            // Act
+            var act = () => _service.AssignInterviewerAsync(interview.Id, interviewer.Id);
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*Cannot assign an interviewer to a cancelled interview.*");
+        }
+
+        [Fact]
+        public async Task AssignInterviewerAsync_WhenValid_AssignsAndSendsNotification()
+        {
+            // Arrange
+            var interviewer = new ApplicationUser("interviewer3@hrms.com", "hash", UserRole.Interviewer);
+            _context.Users.Add(interviewer);
+            await _context.SaveChangesAsync();
+
+            var interview = await CreateTestInterviewAsync();
+
+            // Act
+            var result = await _service.AssignInterviewerAsync(interview.Id, interviewer.Id);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.InterviewerId.Should().Be(interviewer.Id);
+
+            var dbInterview = await _context.Interviews.FindAsync(interview.Id);
+            dbInterview!.InterviewerId.Should().Be(interviewer.Id);
+
+            _notificationServiceMock.Verify(n => n.SendToUserAsync(
+                interviewer.Id,
+                "Phân công phỏng vấn",
+                "INTERVIEW_ASSIGNED_INTERVIEWER",
+                It.IsAny<Dictionary<string, string>>(),
+                NotificationType.ActionRequired,
+                "Interview",
+                interview.Id,
+                It.IsAny<string?>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task ErasePersonalDataAsync_WhenValid_ErasesPhysicalAudioAndAnonymizesData()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            var question = new InterviewQuestion
+            {
+                InterviewId = interview.Id,
+                Question = "Tell me about your experience",
+                OrderIndex = 1
+            };
+            _context.InterviewQuestions.Add(question);
+            await _context.SaveChangesAsync();
+
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestionId = question.Id,
+                AudioStorageKey = "audio/interviews/1/q1_test.webm",
+                AudioDurationSeconds = 60,
+                AudioMimeType = "audio/webm",
+                CreatedAt = DateTime.UtcNow
+            };
+            answer.StartTranscribing();
+            answer.CompleteTranscription(transcript: "Bản bóc băng gốc của ứng viên", detectedLanguage: "vi", sttDurationSeconds: 60.0);
+            answer.UpdateTranscript("Bản bóc băng đã sửa bởi HR", 1);
+
+            var eval = QuestionEvaluation.CreateSucceeded(
+                answer.Id,
+                versionNumber: 1,
+                transcriptSnapshot: "Bản bóc băng gốc của ứng viên",
+                level: RubricLevel.Good,
+                score: 8.0m,
+                analysis: "Phân tích chi tiết ứng viên",
+                evidenceQuotes: new List<string> { "kinh nghiệm 3 năm" },
+                strengths: new List<string> { "Nắm vững kiến thức" },
+                concerns: new List<string> { "Cần thêm kỹ năng mềm" },
+                modelName: "gpt-4o-mini",
+                promptVersion: "v1");
+
+            answer.Evaluations.Add(eval);
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            var dto = new ErasePersonalDataDto
+            {
+                Reason = "Yêu cầu quyền riêng tư của ứng viên theo Luật Bảo vệ dữ liệu cá nhân (Luật số 91/2025/QH15)"
+            };
+
+            // Act
+            var result = await _service.ErasePersonalDataAsync(interview.Id, dto, 1, "Admin");
+
+            // Assert
+            result.Should().NotBeNull();
+            result.InterviewId.Should().Be(interview.Id);
+            result.ErasedAnswersCount.Should().Be(1);
+            result.ErasedAudioFilesCount.Should().Be(1);
+            result.ErasedEvaluationsCount.Should().Be(1);
+
+            // Physical audio delete verified
+            _audioStorageServiceMock.Verify(s => s.DeleteAudioAsync("audio/interviews/1/q1_test.webm", It.IsAny<CancellationToken>()), Times.Once);
+
+            // Answer personal data cleaned
+            var dbAnswer = await _context.InterviewAnswers.Include(a => a.Evaluations).FirstAsync(a => a.Id == answer.Id);
+            dbAnswer.AudioStorageKey.Should().BeEmpty();
+            dbAnswer.Transcript.Should().BeNull();
+            dbAnswer.EditedTranscript.Should().BeNull();
+            dbAnswer.TranscriptSegments.Should().BeNull();
+
+            // Evaluation personal data cleaned but audit scores preserved
+            var dbEval = dbAnswer.Evaluations.First();
+            dbEval.TranscriptSnapshot.Should().Be("[Đã xóa theo chính sách bảo mật dữ liệu cá nhân]");
+            dbEval.Analysis.Should().BeNull();
+            dbEval.EvidenceQuotes.Should().BeEmpty();
+            dbEval.Strengths.Should().BeEmpty();
+            dbEval.Concerns.Should().BeEmpty();
+            dbEval.Level.Should().Be(RubricLevel.Good);
+            dbEval.Score.Should().Be(8.0m);
+            dbEval.Outcome.Should().Be(EvaluationOutcome.Succeeded);
+
+            // Check GetByIdAsync reflects personal data erased
+            var interviewDto = await _service.GetByIdAsync(interview.Id);
+            interviewDto!.IsPersonalDataErased.Should().BeTrue();
+            interviewDto.Questions.First().Answer!.IsAudioDeleted.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task ErasePersonalDataAsync_WhenReasonEmpty_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            var dto = new ErasePersonalDataDto { Reason = "   " };
+
+            // Act
+            var act = () => _service.ErasePersonalDataAsync(interview.Id, dto, 1, "Admin");
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*Lý do xóa dữ liệu cá nhân không được để trống.*");
+        }
+
+        [Fact]
+        public async Task GetAudioStreamWithAccessLogAsync_WhenPhysicalAudioDeleted_Throws410Gone()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            var question = new InterviewQuestion { InterviewId = interview.Id, Question = "Q", OrderIndex = 1 };
+            _context.InterviewQuestions.Add(question);
+            await _context.SaveChangesAsync();
+
+            var storageKey = "audio/interviews/1/erased.webm";
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestionId = question.Id,
+                AudioStorageKey = storageKey,
+                AudioDurationSeconds = 10,
+                AudioMimeType = "audio/webm"
+            };
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Setup audioStorageService to report file does NOT exist
+            _audioStorageServiceMock.Setup(s => s.ExistsAsync(storageKey, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(false);
+
+            // Act
+            var act = () => _service.GetAudioStreamWithAccessLogAsync(storageKey, 1, "Admin", "127.0.0.1");
+
+            // Assert
+            var ex = await act.Should().ThrowAsync<BusinessRuleException>();
+            ex.Which.StatusCode.Should().Be(HttpStatusCode.Gone);
+        }
+
+        [Fact]
+        public async Task UpdateTranscriptAsync_WhenPersonalDataErased_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            var question = new InterviewQuestion { InterviewId = interview.Id, Question = "Q", OrderIndex = 1 };
+            _context.InterviewQuestions.Add(question);
+            await _context.SaveChangesAsync();
+
+            var answer = new InterviewAnswer
+            {
+                InterviewId = interview.Id,
+                InterviewQuestionId = question.Id,
+                AudioStorageKey = "audio/temp.webm",
+                AudioDurationSeconds = 10,
+                AudioMimeType = "audio/webm"
+            };
+            answer.AnonymizePersonalData();
+            _context.InterviewAnswers.Add(answer);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var act = () => _service.UpdateTranscriptAsync(interview.Id, question.Id, "New text", 1, expectedVersion: 1);
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*Dữ liệu cá nhân của câu trả lời này đã bị xóa*");
         }
     }
 }
