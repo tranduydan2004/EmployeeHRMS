@@ -15,11 +15,13 @@ export default function TranscriptEditorModal({
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
+  const [autoReevaluate, setAutoReevaluate] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
       setText(initialTranscript || rawTranscript || '');
       setError('');
+      setAutoReevaluate(true);
     }
   }, [isOpen, initialTranscript, rawTranscript]);
 
@@ -40,6 +42,7 @@ export default function TranscriptEditorModal({
         interviewId,
         questionId,
         transcript: trimmed,
+        reevaluate: autoReevaluate,
       });
       onClose();
     } catch (err) {
@@ -155,6 +158,39 @@ export default function TranscriptEditorModal({
               <span>{error}</span>
             </div>
           )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.65rem 0.85rem',
+              backgroundColor: 'var(--slate-50)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-color)',
+              marginTop: '0.5rem',
+            }}
+          >
+            <input
+              type="checkbox"
+              id="auto-reevaluate-checkbox"
+              checked={autoReevaluate}
+              onChange={(e) => setAutoReevaluate(e.target.checked)}
+              style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: 'var(--primary-600)' }}
+            />
+            <label
+              htmlFor="auto-reevaluate-checkbox"
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--slate-800)',
+                cursor: 'pointer',
+                userSelect: 'none',
+                fontWeight: 500,
+              }}
+            >
+              Kích hoạt AI chấm lại (Re-evaluate) ngay sau khi lưu bản bóc băng
+            </label>
+          </div>
         </div>
       </form>
     </Modal>

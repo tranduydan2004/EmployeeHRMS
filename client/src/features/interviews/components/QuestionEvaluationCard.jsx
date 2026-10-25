@@ -48,13 +48,18 @@ export default function QuestionEvaluationCard({ interview }) {
   const isCompleted = interview.status === 'Completed';
   const isCancelled = interview.status === 'Cancelled';
 
-  // Ownership check: Admin, HR, or assigned Interviewer
-  const canEdit =
+  // Base permission: Admin, HR, hoặc Interviewer được phân công cho buổi phỏng vấn
+  const isAuthorized =
     (role === 'Admin' || role === 'HR' || (role === 'Interviewer' && interview.interviewerId === userId)) &&
-    !isCompleted &&
     !isCancelled;
 
+  // Thao tác thay đổi cấu trúc câu hỏi / kết thúc phỏng vấn: Chỉ khi chưa hoàn tất
+  const canEdit = isAuthorized && !isCompleted;
   const canComplete = canEdit;
+
+  // Quyền thẩm định AI, sửa transcript và kích hoạt chấm lại (Re-evaluate):
+  // Được phép thực hiện cả khi buổi phỏng vấn đã Completed để phục vụ phản biện và phúc khảo
+  const canEvaluate = isAuthorized;
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [questionText, setQuestionText] = useState('');
@@ -114,6 +119,20 @@ export default function QuestionEvaluationCard({ interview }) {
       id: interview.id,
       summary,
     });
+  };
+
+  const handleSaveTranscript = async ({ questionId, transcript, reevaluate = false }) => {
+    const audioAnswer = interview.questions?.find((q) => q.id === questionId)?.answer;
+    await updateTranscript({
+      interviewId: interview.id,
+      questionId,
+      transcript,
+      expectedVersion: audioAnswer?.editVersion,
+    });
+
+    if (reevaluate) {
+      await handleReevaluate(questionId);
+    }
   };
 
   const handleReevaluate = async (questionId) => {
@@ -235,8 +254,8 @@ export default function QuestionEvaluationCard({ interview }) {
                 border: '1px solid var(--success-border)',
               }}
             >
-              <Lock size={12} />
-              Đã hoàn tất (Chỉ đọc)
+              <CheckCircle size={12} />
+              Đã hoàn tất phỏng vấn
             </div>
           )}
         </div>
@@ -422,7 +441,7 @@ export default function QuestionEvaluationCard({ interview }) {
                     {audioAnswer.audioStorageKey && (
                       <AudioAnswerPlayer
                         storageKey={audioAnswer.audioStorageKey}
-                        durationSeconds={audioAnswer.audioDurationSeconds || 0}
+                        durationSeconds={audioAnswer.sttDurationSeconds || audioAnswer.audioDurationSeconds || 0}
                       />
                     )}
 
@@ -487,13 +506,14 @@ export default function QuestionEvaluationCard({ interview }) {
                             </button>
                           )}
 
-                          {canEdit && (
+                          {canEvaluate && (
                             <>
                               <Button
                                 variant="secondary"
                                 size="sm"
                                 icon={Edit3}
                                 onClick={() => setTranscriptModalQuestion(q)}
+                                disabled={isAnswerProcessing}
                                 title="Sửa bản bóc băng trước khi chấm lại"
                               >
                                 Sửa Transcript
@@ -504,7 +524,7 @@ export default function QuestionEvaluationCard({ interview }) {
                                 size="sm"
                                 icon={RefreshCw}
                                 onClick={() => handleReevaluate(q.id)}
-                                disabled={isAnswerProcessing}
+                                disabled={isAnswerProcessing || (!audioAnswer?.effectiveTranscript && !audioAnswer?.transcript)}
                                 isLoading={reevaluatingQuestionId === q.id}
                                 title={
                                   isAnswerProcessing
@@ -512,7 +532,7 @@ export default function QuestionEvaluationCard({ interview }) {
                                     : 'Kích hoạt AI chấm lại với barem và transcript hiện hành'
                                 }
                               >
-                                Re-evaluate
+                                Chấm điểm lại
                               </Button>
                             </>
                           )}
@@ -528,8 +548,15 @@ export default function QuestionEvaluationCard({ interview }) {
                       />
                     </div>
 
-                    {/* Speech Metrics Telemetry */}
-                    {audioAnswer.speechMetrics && <SpeechMetricsCard metrics={audioAnswer.speechMetrics} />}
+                    {/* Speech Metrics Telemetry & Proctoring */}
+                    {(audioAnswer.speechMetrics || audioAnswer.tabSwitchCount > 0 || audioAnswer.outOfFocusDurationSeconds > 0) && (
+                      <SpeechMetricsCard
+                        metrics={audioAnswer.speechMetrics}
+                        tabSwitchCount={audioAnswer.tabSwitchCount}
+                        outOfFocusDurationSeconds={audioAnswer.outOfFocusDurationSeconds}
+                        flags={audioAnswer.flags}
+                      />
+                    )}
 
                     {/* Active AI Evaluation Details */}
                     {activeEvaluation && (
@@ -798,8 +825,8 @@ export default function QuestionEvaluationCard({ interview }) {
           questionText={transcriptModalQuestion.question}
           rawTranscript={transcriptModalQuestion.answer?.transcript}
           initialTranscript={transcriptModalQuestion.answer?.effectiveTranscript}
-          onSave={updateTranscript}
-          isLoading={isUpdatingTranscript}
+          onSave={handleSaveTranscript}
+          isLoading={isUpdatingTranscript || reevaluatingQuestionId === transcriptModalQuestion.id}
         />
       )}
 
