@@ -13,14 +13,21 @@ export const notificationTemplates = {
   INTERVIEW_SCHEDULED_CANDIDATE: (p = {}) =>
     `Bạn có lịch phỏng vấn mới vào lúc ${p.scheduledDate || ''}.`,
 
-  INTERVIEW_ASSIGNED_INTERVIEWER: (p = {}) =>
-    `Bạn được phân công phỏng vấn/đánh giá ứng viên ${p.candidateName || 'Ứng viên'}${p.scheduledDate ? ` vào lúc ${p.scheduledDate}` : ''}.`,
+  INTERVIEW_ASSIGNED_INTERVIEWER: (p = {}) => {
+    const candidateName = p.candidateName || p.CandidateName || 'Ứng viên';
+    const scheduledDate = p.scheduledDate || p.ScheduledDate;
+    const interviewId = p.interviewId || p.InterviewId;
+    return `Bạn được phân công phỏng vấn/đánh giá ứng viên ${candidateName}${scheduledDate ? ` vào lúc ${scheduledDate}` : ''}${interviewId ? ` (Phỏng vấn #${interviewId})` : ''}.`;
+  },
 
   SCREENING_DECISION_RECORDED: (p = {}) =>
-    `Quyết định sơ loại cho ứng viên ${p.candidateName || 'Ứng viên'} (Phỏng vấn #${p.interviewId || ''}) đã được ghi nhận: ${p.decisionType || ''}.`,
+    `Quyết định sơ loại cho ứng viên ${p.candidateName || p.CandidateName || 'Ứng viên'} (Phỏng vấn #${p.interviewId || p.InterviewId || ''}) đã được ghi nhận: ${p.decisionType || p.DecisionType || ''}.`,
 
-  INTERVIEW_COMPLETED: (p = {}) =>
-    `Buổi phỏng vấn #${p.interviewId || ''} của ứng viên ${p.candidateName || 'Ứng viên'} đã được hoàn tất.`,
+  INTERVIEW_COMPLETED: (p = {}) => {
+    const interviewId = p.interviewId || p.InterviewId || '';
+    const candidateName = p.candidateName || p.CandidateName || 'Ứng viên';
+    return `Buổi phỏng vấn #${interviewId} của ứng viên ${candidateName} đã được hoàn tất.`;
+  },
 
   INTERVIEW_CANCELLED_CANDIDATE: (p = {}) =>
     `Lịch phỏng vấn cho vị trí ${p.jobTitle || 'buổi phỏng vấn'} vào lúc ${p.scheduledDate || ''} đã bị hủy.`,

@@ -31,6 +31,14 @@ export function useInterview(id) {
       return res.data;
     },
     enabled: !!id,
+    refetchInterval: (query) => {
+      const interview = query.state.data;
+      if (!interview) return false;
+      const isAnyAnswerProcessing = interview.questions?.some(
+        (q) => q.answer?.status === 'Pending' || q.answer?.status === 'Transcribing' || q.answer?.status === 'Scoring'
+      );
+      return isAnyAnswerProcessing ? 2500 : false;
+    },
   });
 }
 

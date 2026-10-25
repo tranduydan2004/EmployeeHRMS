@@ -88,6 +88,9 @@ namespace EmployeeHRMS.Api.Services
             LastEditedByUserId = answer.LastEditedByUserId,
             LastEditedAt = answer.LastEditedAt,
             DetectedLanguage = answer.DetectedLanguage,
+            TabSwitchCount = answer.TabSwitchCount,
+            OutOfFocusDurationSeconds = answer.OutOfFocusDurationSeconds,
+            Flags = answer.Flags ?? new List<string>(),
             SpeechMetrics = answer.SpeechMetrics,
             ErrorMessage = answer.ErrorMessage,
             CreatedAt = answer.CreatedAt,
@@ -1018,6 +1021,7 @@ namespace EmployeeHRMS.Api.Services
             if (_notificationService != null)
             {
                 var candidateName = interview.Application?.Candidate?.FullName ?? "Ứng viên";
+                var scheduledDateStr = interview.ScheduledDate.ToString("dd/MM/yyyy HH:mm");
                 await _notificationService.SendToUserAsync(
                     interviewerId,
                     "Phân công phỏng vấn",
@@ -1025,12 +1029,13 @@ namespace EmployeeHRMS.Api.Services
                     new Dictionary<string, string>
                     {
                         { "candidateName", candidateName },
+                        { "scheduledDate", scheduledDateStr },
                         { "interviewId", interview.Id.ToString() }
                     },
                     NotificationType.ActionRequired,
                     relatedEntity: "Interview",
                     relatedEntityId: interview.Id,
-                    fallbackMessage: $"Bạn được phân công phỏng vấn/đánh giá ứng viên {candidateName} (Buổi phỏng vấn #{interview.Id}).");
+                    fallbackMessage: $"Bạn được phân công phỏng vấn/đánh giá ứng viên {candidateName} vào lúc {scheduledDateStr} (Buổi phỏng vấn #{interview.Id}).");
             }
 
             return MapToResponseDto(interview);

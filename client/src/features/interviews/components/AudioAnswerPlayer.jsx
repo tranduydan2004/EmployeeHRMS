@@ -8,10 +8,19 @@ export default function AudioAnswerPlayer({ storageKey, durationSeconds = 0 }) {
   const [loadError, setLoadError] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [totalDuration, setTotalDuration] = useState(durationSeconds);
+  const [totalDuration, setTotalDuration] = useState(
+    Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0
+  );
   const [isMuted, setIsMuted] = useState(false);
 
   const audioRef = useRef(null);
+
+  // Sync durationSeconds if changed from props and totalDuration is not yet set
+  useEffect(() => {
+    if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      setTotalDuration((prev) => (Number.isFinite(prev) && prev > 0 ? prev : durationSeconds));
+    }
+  }, [durationSeconds]);
 
   useEffect(() => {
     let active = true;
@@ -62,21 +71,50 @@ export default function AudioAnswerPlayer({ storageKey, durationSeconds = 0 }) {
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
+      const cur = audioRef.current.currentTime;
+      if (Number.isFinite(cur)) {
+        setCurrentTime(cur);
+      }
     }
   };
 
   const handleLoadedMetadata = () => {
-    if (audioRef.current && audioRef.current.duration && !isNaN(audioRef.current.duration)) {
-      setTotalDuration(audioRef.current.duration);
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const dur = audio.duration;
+    if (Number.isFinite(dur) && dur > 0) {
+      setTotalDuration(dur);
+    } else if (dur === Infinity) {
+      // Chromium WebM MediaRecorder bug: duration defaults to Infinity
+      // Seeking to an extremely high time forces browser to read index/compute duration
+      const handleDurationChange = () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          setTotalDuration(audio.duration);
+        }
+        audio.removeEventListener('durationchange', handleDurationChange);
+      };
+
+      const handleTimeUpdateOnce = () => {
+        audio.currentTime = 0;
+        audio.removeEventListener('timeupdate', handleTimeUpdateOnce);
+      };
+
+      audio.addEventListener('durationchange', handleDurationChange);
+      audio.addEventListener('timeupdate', handleTimeUpdateOnce);
+      audio.currentTime = 1e101;
+    } else if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      setTotalDuration(durationSeconds);
     }
   };
 
   const handleSeek = (e) => {
     const time = parseFloat(e.target.value);
-    setCurrentTime(time);
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
+    if (Number.isFinite(time)) {
+      setCurrentTime(time);
+      if (audioRef.current) {
+        audioRef.current.currentTime = time;
+      }
     }
   };
 
@@ -87,7 +125,7 @@ export default function AudioAnswerPlayer({ storageKey, durationSeconds = 0 }) {
   };
 
   const formatTime = (secs) => {
-    if (isNaN(secs) || secs < 0) return '0:00';
+    if (!Number.isFinite(secs) || isNaN(secs) || secs <= 0) return '0:00';
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
@@ -158,36 +196,43 @@ export default function AudioAnswerPlayer({ storageKey, durationSeconds = 0 }) {
             {isPlaying ? <Pause size={15} /> : <Play size={15} style={{ marginLeft: '2px' }} />}
           </button>
 
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: '120px' }}>
-            <input
-              type="range"
-              min="0"
-              max={totalDuration || 100}
-              step="0.1"
-              value={currentTime}
-              onChange={handleSeek}
-              style={{
-                width: '100%',
-                height: '4px',
-                borderRadius: '2px',
-                accentColor: 'var(--primary-600)',
-                cursor: 'pointer',
-              }}
-            />
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: '0.7rem',
-                color: 'var(--slate-500)',
-                marginTop: '2px',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(totalDuration)}</span>
-            </div>
-          </div>
+          {(() => {
+            const effectiveDuration = (Number.isFinite(totalDuration) && totalDuration > 0)
+              ? totalDuration
+              : (Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: '120px' }}>
+                <input
+                  type="range"
+                  min="0"
+                  max={effectiveDuration > 0 ? effectiveDuration : 100}
+                  step="0.1"
+                  value={Number.isFinite(currentTime) ? Math.min(currentTime, effectiveDuration || currentTime) : 0}
+                  onChange={handleSeek}
+                  style={{
+                    width: '100%',
+                    height: '4px',
+                    borderRadius: '2px',
+                    accentColor: 'var(--primary-600)',
+                    cursor: 'pointer',
+                  }}
+                />
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.7rem',
+                    color: 'var(--slate-500)',
+                    marginTop: '2px',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  <span>{formatTime(currentTime)}</span>
+                  <span>{formatTime(effectiveDuration)}</span>
+                </div>
+              </div>
+            );
+          })()}
 
           <button
             type="button"
