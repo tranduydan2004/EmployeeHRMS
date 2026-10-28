@@ -41,7 +41,7 @@ namespace EmployeeHRMS.Api.Services
         /// Lấy thông tin phiên phỏng vấn và danh sách câu hỏi cho ứng viên (công khai qua inviteToken).
         /// TUYỆT ĐỐI không trả ScoringRubric hay dữ liệu nội bộ.
         /// </summary>
-        Task<CandidateInterviewSessionResponseDto> GetCandidateSessionAsync(Guid inviteToken, CancellationToken cancellationToken = default);
+        Task<CandidateInterviewSessionResponseDto> GetCandidateSessionAsync(Guid inviteToken, Guid? sessionNonce = null, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Ứng viên xác nhận bắt đầu phỏng vấn và đồng ý ghi âm (idempotent).

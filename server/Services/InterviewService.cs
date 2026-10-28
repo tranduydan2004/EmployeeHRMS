@@ -375,6 +375,24 @@ namespace EmployeeHRMS.Api.Services
             var interview = await _context.Interviews.FindAsync(id)
                 ?? throw new NotFoundException("Interview", id);
 
+            var relatedAudioLogs = await _context.AudioAccessLogs
+                .Where(l => l.InterviewId == id)
+                .ToListAsync();
+
+            if (relatedAudioLogs.Count > 0)
+            {
+                _context.AudioAccessLogs.RemoveRange(relatedAudioLogs);
+            }
+
+            var relatedDecisions = await _context.ScreeningDecisions
+                .Where(d => d.InterviewId == id)
+                .ToListAsync();
+
+            if (relatedDecisions.Count > 0)
+            {
+                _context.ScreeningDecisions.RemoveRange(relatedDecisions);
+            }
+
             _context.Interviews.Remove(interview);
             await _context.SaveChangesAsync();
 
@@ -597,6 +615,7 @@ namespace EmployeeHRMS.Api.Services
 
         public async Task<CandidateInterviewSessionResponseDto> GetCandidateSessionAsync(
             Guid inviteToken,
+            Guid? sessionNonce = null,
             CancellationToken cancellationToken = default)
         {
             var interview = await _context.Interviews
@@ -635,32 +654,150 @@ namespace EmployeeHRMS.Api.Services
                 throw new ConflictException("Phiên phỏng vấn này đã hoàn thành.");
             }
 
+            // Xác thực SessionNonce nếu đã được kích hoạt
+            if (interview.ActiveSessionNonce.HasValue && sessionNonce.HasValue)
+            {
+                if (interview.ActiveSessionNonce.Value != sessionNonce.Value)
+                {
+                    throw new ConflictException("Phiên làm bài này đã được mở trên một thiết bị/tab khác. Vui lòng làm mới trang để tiếp tục.");
+                }
+            }
+
+            var orderedQuestions = interview.Questions.OrderBy(q => q.OrderIndex).ToList();
             var answeredQuestionIds = interview.Answers
                 .Select(a => a.InterviewQuestionId)
                 .ToHashSet();
 
-            // TUYỆT ĐỐI không trả ScoringRubric hay field nội bộ nào khác
+            // Xác định câu hỏi đang hoạt động (active question: câu đầu tiên chưa trả lời)
+            InterviewQuestion? activeQuestion = null;
+            int currentQuestionIndex = 0;
+            bool stateChanged = false;
+
+            for (int i = 0; i < orderedQuestions.Count; i++)
+            {
+                var q = orderedQuestions[i];
+                if (!answeredQuestionIds.Contains(q.Id))
+                {
+                    // Nếu phỏng vấn đang diễn ra và câu hỏi này đã được phát (ServedAt có giá trị):
+                    // Kiểm tra xem ứng viên có bỏ lỡ/rời đi quá tổng thời gian (ThinkSeconds + AnswerSeconds + Buffer 5s) không
+                    if (interview.Status == InterviewStatus.InProgress && q.ServedAt.HasValue)
+                    {
+                        var allowedTotal = q.ThinkSeconds + q.AnswerSeconds + 5;
+                        var elapsed = (DateTime.UtcNow - q.ServedAt.Value).TotalSeconds;
+                        if (elapsed >= allowedTotal)
+                        {
+                            var timeoutAnswer = new InterviewAnswer
+                            {
+                                InterviewId = interview.Id,
+                                InterviewQuestionId = q.Id,
+                                AudioStorageKey = string.Empty,
+                                AudioDurationSeconds = 0,
+                                AudioMimeType = "audio/none",
+                                AudioFileSize = 0,
+                                TabSwitchCount = 0,
+                                OutOfFocusDurationSeconds = elapsed,
+                                Flags = new List<string> { "TimedOut", "NoAudioSubmitted" }
+                            };
+                            timeoutAnswer.MarkTimedOut();
+                            _context.InterviewAnswers.Add(timeoutAnswer);
+                            interview.Answers.Add(timeoutAnswer);
+                            answeredQuestionIds.Add(q.Id);
+                            stateChanged = true;
+                            continue; // Tự động bỏ qua câu này và chuyển sang xét câu tiếp theo
+                        }
+                    }
+
+                    activeQuestion = q;
+                    currentQuestionIndex = i;
+
+                    // Nếu đang trong tiến trình phỏng vấn và câu hỏi này chưa có mốc ServedAt thì ghi nhận thời điểm mở câu hỏi
+                    if (interview.Status == InterviewStatus.InProgress && !q.ServedAt.HasValue)
+                    {
+                        q.ServedAt = DateTime.UtcNow;
+                        stateChanged = true;
+                    }
+                    break;
+                }
+            }
+
+            // Nếu tất cả câu hỏi đều đã được trả lời hoặc timed out, tự động hoàn tất buổi phỏng vấn
+            if (activeQuestion == null && orderedQuestions.Count > 0 && answeredQuestionIds.Count >= orderedQuestions.Count)
+            {
+                if (interview.Status == InterviewStatus.InProgress)
+                {
+                    interview.Complete("Hoàn thành tất cả câu hỏi");
+                    stateChanged = true;
+                }
+            }
+
+            if (stateChanged)
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            // TUYỆT ĐỐI không trả ScoringRubric hay field nội bộ nào khác.
+            // Ẩn nội dung text của các câu hỏi chưa đến lượt (ẩn trước các câu sau) để chống gian lận đọc trước đề.
+            var questionDtos = new List<CandidateQuestionDto>();
+            for (int i = 0; i < orderedQuestions.Count; i++)
+            {
+                var q = orderedQuestions[i];
+                var hasAnswer = answeredQuestionIds.Contains(q.Id);
+                var isActive = activeQuestion != null && q.Id == activeQuestion.Id;
+                var isCompleted = hasAnswer;
+                var isLocked = !hasAnswer && !isActive;
+
+                // Quy tắc ẩn nội dung:
+                // - Câu đã hoàn thành hoặc câu hiện tại đang làm (active): hiển thị Question text
+                // - Toàn bộ các câu hỏi phía sau (chưa đến lượt): bị ẩn text ("") để chống đọc đề trước
+                string visibleQuestionText = (isCompleted || isActive) ? q.Question : string.Empty;
+
+                int? remainingThink = null;
+                int? remainingAnswer = null;
+
+                if (isActive && q.ServedAt.HasValue)
+                {
+                    var elapsed = (DateTime.UtcNow - q.ServedAt.Value).TotalSeconds;
+                    if (elapsed < q.ThinkSeconds)
+                    {
+                        remainingThink = (int)Math.Max(0, Math.Ceiling(q.ThinkSeconds - elapsed));
+                        remainingAnswer = q.AnswerSeconds;
+                    }
+                    else
+                    {
+                        remainingThink = 0;
+                        var usedAnswerTime = elapsed - q.ThinkSeconds;
+                        remainingAnswer = (int)Math.Max(0, Math.Ceiling(q.AnswerSeconds - usedAnswerTime));
+                    }
+                }
+
+                questionDtos.Add(new CandidateQuestionDto
+                {
+                    Id = q.Id,
+                    Question = visibleQuestionText,
+                    OrderIndex = q.OrderIndex,
+                    ThinkSeconds = q.ThinkSeconds,
+                    AnswerSeconds = q.AnswerSeconds,
+                    HasAnswer = hasAnswer,
+                    ServedAt = q.ServedAt,
+                    RemainingThinkSeconds = remainingThink,
+                    RemainingAnswerSeconds = remainingAnswer,
+                    IsActive = isActive,
+                    IsLocked = isLocked
+                });
+            }
+
             return new CandidateInterviewSessionResponseDto
             {
                 InviteToken = interview.InviteToken,
+                ActiveSessionNonce = interview.ActiveSessionNonce,
                 JobTitle = interview.Application?.JobPosting?.Title ?? "Phỏng vấn",
                 CandidateName = interview.Application?.Candidate?.FullName ?? "Ứng viên",
                 Status = interview.Status.ToString(),
                 InviteExpiresAt = interview.InviteExpiresAt,
                 ConsentedAt = interview.ConsentedAt,
-                TotalQuestions = interview.Questions.Count,
-                Questions = interview.Questions
-                    .OrderBy(q => q.OrderIndex)
-                    .Select(q => new CandidateQuestionDto
-                    {
-                        Id = q.Id,
-                        Question = q.Question,
-                        OrderIndex = q.OrderIndex,
-                        ThinkSeconds = q.ThinkSeconds,
-                        AnswerSeconds = q.AnswerSeconds,
-                        HasAnswer = answeredQuestionIds.Contains(q.Id)
-                    })
-                    .ToList()
+                TotalQuestions = orderedQuestions.Count,
+                CurrentQuestionIndex = currentQuestionIndex,
+                Questions = questionDtos
             };
         }
 
@@ -669,6 +806,7 @@ namespace EmployeeHRMS.Api.Services
             CancellationToken cancellationToken = default)
         {
             var interview = await _context.Interviews
+                .Include(i => i.Questions)
                 .FirstOrDefaultAsync(i => i.InviteToken == inviteToken, cancellationToken);
 
             if (interview == null)
@@ -698,6 +836,14 @@ namespace EmployeeHRMS.Api.Services
 
             // Idempotent: gọi lại khi đã InProgress sẽ giữ nguyên ConsentedAt
             interview.MarkInProgress();
+
+            // Khởi tạo mốc ServedAt cho câu hỏi đầu tiên
+            var firstQuestion = interview.Questions.OrderBy(q => q.OrderIndex).FirstOrDefault();
+            if (firstQuestion != null && !firstQuestion.ServedAt.HasValue)
+            {
+                firstQuestion.ServedAt = DateTime.UtcNow;
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
 
             _eventLogger.LogEvent("Interview",
@@ -707,6 +853,7 @@ namespace EmployeeHRMS.Api.Services
             return new CandidateInterviewStartResponseDto
             {
                 InviteToken = interview.InviteToken,
+                ActiveSessionNonce = interview.ActiveSessionNonce,
                 Status = interview.Status.ToString(),
                 ConsentedAt = interview.ConsentedAt,
                 Message = "Bắt đầu phiên phỏng vấn thành công."

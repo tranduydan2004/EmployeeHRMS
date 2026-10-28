@@ -97,6 +97,17 @@ namespace EmployeeHRMS.Api.Services
                 throw new ConflictException("Buổi phỏng vấn này đã hoàn tất, không thể nộp thêm câu trả lời.");
             }
 
+            // 4b. Kiểm tra SessionNonce để chống xung đột nhiều thiết bị/tab cùng lúc
+            if (interview.ActiveSessionNonce.HasValue && dto.SessionNonce.HasValue)
+            {
+                if (interview.ActiveSessionNonce.Value != dto.SessionNonce.Value)
+                {
+                    _logger.LogWarning("Audio ingestion rejected: Invalid SessionNonce {ClientNonce} for Interview #{InterviewId}",
+                        dto.SessionNonce, interview.Id);
+                    throw new ConflictException("Phiên làm bài này đã được mở trên một thiết bị/tab khác. Vui lòng làm mới trang.");
+                }
+            }
+
             // 5. Kiểm tra câu hỏi có thuộc interview này không
             var question = interview.Questions.FirstOrDefault(q => q.Id == questionId);
             if (question == null)
@@ -104,6 +115,24 @@ namespace EmployeeHRMS.Api.Services
                 _logger.LogWarning("Audio ingestion rejected: Question #{QuestionId} does not belong to Interview #{InterviewId}",
                     questionId, interview.Id);
                 throw new NotFoundException($"Câu hỏi #{questionId} không tồn tại trong buổi phỏng vấn này.");
+            }
+
+            // 5a. Kiểm tra thứ tự một chiều: toàn bộ câu hỏi trước question.OrderIndex phải đã có câu trả lời
+            var answeredQuestionIds = await _context.InterviewAnswers
+                .Where(a => a.InterviewId == interview.Id)
+                .Select(a => a.InterviewQuestionId)
+                .ToListAsync(cancellationToken);
+
+            var previousUnanswered = interview.Questions
+                .Where(q => q.OrderIndex < question.OrderIndex && !answeredQuestionIds.Contains(q.Id))
+                .OrderBy(q => q.OrderIndex)
+                .FirstOrDefault();
+
+            if (previousUnanswered != null)
+            {
+                _logger.LogWarning("Audio ingestion rejected: Sequence violation. Question #{QuestionId} (Order {Order}) submitted before Question #{PrevId} (Order {PrevOrder})",
+                    questionId, question.OrderIndex, previousUnanswered.Id, previousUnanswered.OrderIndex);
+                throw new BusinessRuleException($"Vui lòng hoàn thành câu hỏi số {previousUnanswered.OrderIndex + 1} trước theo đúng thứ tự.");
             }
 
             // 5b. Validate thời lượng câu trả lời theo đúng Question.AnswerSeconds + buffer dung sai (mặc định 5s)
@@ -119,6 +148,12 @@ namespace EmployeeHRMS.Api.Services
                 throw new BusinessRuleException(
                     $"Thời lượng câu trả lời ({dto.DurationSeconds} giây) vượt quá giới hạn cho phép của câu hỏi này ({allowedAnswerSeconds} giây + {_audioInterviewOptions.DurationBufferSeconds} giây dung sai).");
             }
+
+            // 5c. Xác thực mốc ServedAt và tính độ trễ nộp bài
+            question.ServedAt ??= DateTime.UtcNow.AddSeconds(-dto.DurationSeconds);
+            var elapsedSinceServed = (DateTime.UtcNow - question.ServedAt.Value).TotalSeconds;
+            var thinkSeconds = question.ThinkSeconds > 0 ? question.ThinkSeconds : 20;
+            var totalAllowedTime = thinkSeconds + allowedAnswerSeconds + _audioInterviewOptions.DurationBufferSeconds;
 
             // 6. Kiểm tra xem câu hỏi này đã có câu trả lời chưa — Idempotent (A5): trả 200 OK kèm answer hiện tại
             var existingAnswer = await _context.InterviewAnswers
@@ -145,13 +180,28 @@ namespace EmployeeHRMS.Api.Services
                     cancellationToken);
             }
 
-            // 8. Whitelist & lọc Flags do client khai báo (A4)
+            // 8. Whitelist & lọc Flags do client khai báo (A4) kết hợp phát hiện trễ hạn
             var safeFlags = dto.Flags?
                 .Where(f => !string.IsNullOrWhiteSpace(f) && string.Equals(f.Trim(), "MicDisconnected", StringComparison.OrdinalIgnoreCase))
                 .Select(f => "MicDisconnected")
                 .Distinct()
                 .Take(5)
                 .ToList() ?? new List<string>();
+
+            if (dto.IsOfflineRecovery)
+            {
+                safeFlags.Add("OfflineRecovery");
+            }
+
+            // Nếu nộp bài trễ hơn khung giờ suy nghĩ + trả lời + buffer
+            if (elapsedSinceServed > totalAllowedTime)
+            {
+                var delayedSeconds = (int)Math.Round(elapsedSinceServed - totalAllowedTime);
+                safeFlags.Add($"LateSubmission:{delayedSeconds}s");
+                _logger.LogWarning(
+                    "Audio answer for Question #{QuestionId} submitted late by {Delayed}s (Elapsed: {Elapsed:F1}s, Allowed: {Allowed}s). Flagged LateSubmission.",
+                    questionId, delayedSeconds, elapsedSinceServed, totalAllowedTime);
+            }
 
             // 9. Tạo bản ghi InterviewAnswer (Status = Pending) & Compensating transaction nếu DB / Queue fail
             InterviewAnswer answer;

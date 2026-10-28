@@ -208,6 +208,60 @@ namespace EmployeeHRMS.Tests.Services
             result.AiSummary.Should().Be("Strong background in C#");
         }
 
+        [Fact]
+        public async Task DeleteAsync_WhenApplicationHasRelatedInterviewsAndDecisions_ShouldCascadeDeleteSuccessfully()
+        {
+            // Arrange: create interview, screening decision, and audio log tied to application 1
+            var interview = new Interview
+            {
+                Id = 999,
+                ApplicationId = 1,
+                ScheduledDate = DateTime.UtcNow
+            };
+            _context.Interviews.Add(interview);
+
+            var decision = new ScreeningDecision
+            {
+                ApplicationId = 1,
+                InterviewId = 999,
+                DecidedByUserId = 1,
+                DecidedByRole = "HR",
+                DecisionType = ScreeningDecisionType.AdvanceToInDepth
+            };
+            _context.ScreeningDecisions.Add(decision);
+
+            var audioLog = AudioAccessLog.Create(
+                interviewId: 999,
+                interviewAnswerId: null,
+                storageKey: "test/audio.webm",
+                userId: 1,
+                userRole: "HR",
+                ipAddress: "127.0.0.1"
+            );
+            _context.AudioAccessLogs.Add(audioLog);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var result = await _service.DeleteAsync(1);
+
+            // Assert
+            result.Should().BeTrue();
+            (await _context.Applications.FindAsync(1)).Should().BeNull();
+            (await _context.Interviews.FindAsync(999)).Should().BeNull();
+            (await _context.ScreeningDecisions.FirstOrDefaultAsync(d => d.ApplicationId == 1)).Should().BeNull();
+            (await _context.AudioAccessLogs.FirstOrDefaultAsync(l => l.InterviewId == 999)).Should().BeNull();
+        }
+
+        [Fact]
+        public async Task DeleteAsync_WhenNotFound_ThrowsNotFoundException()
+        {
+            // Act
+            var act = () => _service.DeleteAsync(99999);
+
+            // Assert
+            await act.Should().ThrowAsync<NotFoundException>();
+        }
+
         public void Dispose()
         {
             _context.Database.EnsureDeleted();

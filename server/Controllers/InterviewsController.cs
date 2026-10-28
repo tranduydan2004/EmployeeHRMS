@@ -264,9 +264,17 @@ namespace EmployeeHRMS.Api.Controllers
         [HttpGet("{inviteToken:guid}")]
         [AllowAnonymous]
         [EnableRateLimiting("CandidatePortalRateLimit")]
-        public async Task<IActionResult> GetCandidateSession(Guid inviteToken, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetCandidateSession(
+            Guid inviteToken,
+            [FromQuery] Guid? sessionNonce = null,
+            CancellationToken cancellationToken = default)
         {
-            var result = await _interviewService.GetCandidateSessionAsync(inviteToken, cancellationToken);
+            if (!sessionNonce.HasValue && Request.Headers.TryGetValue("X-Session-Nonce", out var headerNonce) && Guid.TryParse(headerNonce, out var parsedNonce))
+            {
+                sessionNonce = parsedNonce;
+            }
+
+            var result = await _interviewService.GetCandidateSessionAsync(inviteToken, sessionNonce, cancellationToken);
             return Ok(result);
         }
 
@@ -305,6 +313,11 @@ namespace EmployeeHRMS.Api.Controllers
             [FromForm] AudioAnswerUploadDto dto,
             CancellationToken cancellationToken)
         {
+            if (!dto.SessionNonce.HasValue && Request.Headers.TryGetValue("X-Session-Nonce", out var headerNonce) && Guid.TryParse(headerNonce, out var parsedNonce))
+            {
+                dto.SessionNonce = parsedNonce;
+            }
+
             var (result, isCreated) = await _audioIngestionService.ProcessAudioUploadAsync(
                 inviteToken,
                 questionId,

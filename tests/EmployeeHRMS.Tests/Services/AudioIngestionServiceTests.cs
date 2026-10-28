@@ -431,5 +431,69 @@ namespace EmployeeHRMS.Tests.Services
             await act.Should().ThrowAsync<BusinessRuleException>()
                 .WithMessage("*vượt quá giới hạn cho phép*");
         }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WhenSequenceViolated_ThrowsBusinessRuleException()
+        {
+            // Arrange: Thêm câu hỏi thứ 2 có OrderIndex = 2
+            var q2 = new InterviewQuestion
+            {
+                Id = 21,
+                InterviewId = _validInterviewId,
+                Question = "Second question",
+                OrderIndex = 2,
+                ThinkSeconds = 20,
+                AnswerSeconds = 60
+            };
+            _context.InterviewQuestions.Add(q2);
+            await _context.SaveChangesAsync();
+
+            var audioBytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x02 };
+            var mockFile = CreateMockAudioFormFile("answer.webm", "audio/webm", audioBytes);
+            var dto = new AudioAnswerUploadDto
+            {
+                AudioFile = mockFile,
+                DurationSeconds = 30
+            };
+
+            // Act: Cố tình nộp câu 2 (q2) khi câu 1 (_validQuestionId) chưa nộp
+            var act = () => _service.ProcessAudioUploadAsync(_validInviteToken, 21, dto);
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*Vui lòng hoàn thành câu hỏi số*trước theo đúng thứ tự*");
+        }
+
+        [Fact]
+        public async Task ProcessAudioUploadAsync_WhenLateSubmission_FlagsLateSubmission()
+        {
+            // Arrange: Câu hỏi đã được ServedAt từ 10 phút trước
+            var question = await _context.InterviewQuestions.FindAsync(_validQuestionId);
+            question!.ServedAt = DateTime.UtcNow.AddMinutes(-10);
+            await _context.SaveChangesAsync();
+
+            var audioBytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x02 };
+            var mockFile = CreateMockAudioFormFile("answer.webm", "audio/webm", audioBytes);
+            var dto = new AudioAnswerUploadDto
+            {
+                AudioFile = mockFile,
+                DurationSeconds = 40
+            };
+
+            var storageKey = "audio/interviews/10/20_late.webm";
+            _storageMock.Setup(s => s.GenerateStorageKey(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>()))
+                .Returns(storageKey);
+            _storageMock.Setup(s => s.SaveAudioAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(storageKey);
+
+            // Act
+            var (response, isCreated) = await _service.ProcessAudioUploadAsync(_validInviteToken, _validQuestionId, dto);
+
+            // Assert
+            isCreated.Should().BeTrue();
+            var dbAnswer = await _context.InterviewAnswers.FirstOrDefaultAsync(a => a.InterviewQuestionId == _validQuestionId);
+            dbAnswer.Should().NotBeNull();
+            dbAnswer!.Flags.Should().Contain(f => f.StartsWith("LateSubmission"));
+        }
     }
 }

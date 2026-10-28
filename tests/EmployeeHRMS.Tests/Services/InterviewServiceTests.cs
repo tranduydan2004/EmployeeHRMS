@@ -1571,5 +1571,114 @@ namespace EmployeeHRMS.Tests.Services
             await act.Should().ThrowAsync<BusinessRuleException>()
                 .WithMessage("*Dữ liệu cá nhân của câu trả lời này đã bị xóa*");
         }
+
+        [Fact]
+        public async Task GetCandidateSessionAsync_WhenMultipleQuestions_ShouldMaskFutureQuestionsAndStampServedAt()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            interview.MarkInProgress();
+
+            var q1 = new InterviewQuestion { Id = 101, InterviewId = interview.Id, Question = "Question 1", OrderIndex = 1, ThinkSeconds = 20, AnswerSeconds = 60 };
+            var q2 = new InterviewQuestion { Id = 102, InterviewId = interview.Id, Question = "Question 2", OrderIndex = 2, ThinkSeconds = 20, AnswerSeconds = 60 };
+            var q3 = new InterviewQuestion { Id = 103, InterviewId = interview.Id, Question = "Question 3", OrderIndex = 3, ThinkSeconds = 20, AnswerSeconds = 60 };
+            _context.InterviewQuestions.AddRange(q1, q2, q3);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var session = await _service.GetCandidateSessionAsync(interview.InviteToken);
+
+            // Assert
+            session.Questions.Should().HaveCount(3);
+            var resQ1 = session.Questions.First(q => q.Id == 101);
+            var resQ2 = session.Questions.First(q => q.Id == 102);
+            var resQ3 = session.Questions.First(q => q.Id == 103);
+
+            resQ1.IsActive.Should().BeTrue();
+            resQ1.Question.Should().Be("Question 1");
+            resQ1.ServedAt.Should().NotBeNull();
+            resQ1.RemainingThinkSeconds.Should().BeGreaterThan(0);
+
+            // Future questions must be masked and locked
+            resQ2.IsActive.Should().BeFalse();
+            resQ2.IsLocked.Should().BeTrue();
+            resQ2.Question.Should().BeEmpty();
+
+            resQ3.IsActive.Should().BeFalse();
+            resQ3.IsLocked.Should().BeTrue();
+            resQ3.Question.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task GetCandidateSessionAsync_WhenSessionNonceMismatched_ShouldThrowConflictException()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            interview.MarkInProgress();
+            var activeNonce = interview.ActiveSessionNonce;
+            await _context.SaveChangesAsync();
+
+            // Act: call with a different nonce
+            var mismatchedNonce = Guid.NewGuid();
+            var act = () => _service.GetCandidateSessionAsync(interview.InviteToken, mismatchedNonce);
+
+            // Assert
+            await act.Should().ThrowAsync<ConflictException>()
+                .WithMessage("*thiết bị/tab khác*");
+        }
+
+        [Fact]
+        public async Task GetCandidateSessionAsync_WhenQuestionTimedOut_ShouldAutoExpireAndServeNextQuestion()
+        {
+            // Arrange
+            var interview = await CreateTestInterviewAsync();
+            interview.MarkInProgress();
+
+            // Q1 was served 60s ago (exceeds Think 10 + Answer 20 + Buffer 5 = 35s)
+            var q1 = new InterviewQuestion
+            {
+                Id = 201,
+                InterviewId = interview.Id,
+                Question = "Timed Out Question",
+                OrderIndex = 1,
+                ThinkSeconds = 10,
+                AnswerSeconds = 20,
+                ServedAt = DateTime.UtcNow.AddSeconds(-60)
+            };
+            var q2 = new InterviewQuestion
+            {
+                Id = 202,
+                InterviewId = interview.Id,
+                Question = "Next Available Question",
+                OrderIndex = 2,
+                ThinkSeconds = 15,
+                AnswerSeconds = 30
+            };
+            _context.InterviewQuestions.AddRange(q1, q2);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var session = await _service.GetCandidateSessionAsync(interview.InviteToken);
+
+            // Assert
+            session.CurrentQuestionIndex.Should().Be(1);
+            var resQ1 = session.Questions.First(q => q.Id == 201);
+            var resQ2 = session.Questions.First(q => q.Id == 202);
+
+            // Q1 must be marked as answered via timeout
+            resQ1.HasAnswer.Should().BeTrue();
+            resQ1.IsActive.Should().BeFalse();
+
+            // Q2 must now be active and unmasked
+            resQ2.IsActive.Should().BeTrue();
+            resQ2.IsLocked.Should().BeFalse();
+            resQ2.Question.Should().Be("Next Available Question");
+            resQ2.ServedAt.Should().NotBeNull();
+
+            // Verify database has timeout answer
+            var dbAnswer = await _context.InterviewAnswers.FirstOrDefaultAsync(a => a.InterviewQuestionId == 201);
+            dbAnswer.Should().NotBeNull();
+            dbAnswer!.Flags.Should().Contain("TimedOut");
+        }
     }
 }

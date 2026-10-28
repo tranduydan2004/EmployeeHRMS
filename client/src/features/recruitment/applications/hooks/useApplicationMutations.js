@@ -57,6 +57,10 @@ export function useDeleteApplication() {
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       toast.success('Đã xóa đơn ứng tuyển!');
     },
+    onError: (err) => {
+      const msg = err.response?.data?.error || err.message || 'Không thể xóa đơn ứng tuyển. Vui lòng thử lại!';
+      toast.error(msg);
+    },
   });
 
   return {

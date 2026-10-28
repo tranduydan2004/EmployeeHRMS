@@ -16,13 +16,26 @@ export function useInterviewTimer({ totalSeconds = 0, autoStart = false, onFinis
 
   const targetEndTimeRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const timeoutRef = useRef(null);
   const onFinishRef = useRef(onFinish);
 
   useEffect(() => {
     onFinishRef.current = onFinish;
   }, [onFinish]);
 
+  const clearTimers = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
   const start = useCallback((seconds) => {
+    clearTimers();
     const sec = seconds !== undefined ? seconds : totalSeconds;
     if (sec <= 0) {
       setSecondsLeft(0);
@@ -34,24 +47,27 @@ export function useInterviewTimer({ totalSeconds = 0, autoStart = false, onFinis
     targetEndTimeRef.current = performance.now() + sec * 1000;
     setSecondsLeft(sec);
     setIsRunning(true);
-  }, [totalSeconds]);
+
+    // Fallback timer: đảm bảo onFinish vẫn kích hoạt đúng giờ ngay cả khi tab bị throttle lúc ẩn
+    timeoutRef.current = setTimeout(() => {
+      setSecondsLeft(0);
+      setIsRunning(false);
+      if (onFinishRef.current) onFinishRef.current();
+    }, sec * 1000);
+  }, [totalSeconds, clearTimers]);
 
   const pause = useCallback(() => {
     setIsRunning(false);
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-  }, []);
+    clearTimers();
+  }, [clearTimers]);
 
   const reset = useCallback((seconds) => {
     const sec = seconds !== undefined ? seconds : totalSeconds;
     targetEndTimeRef.current = null;
     setIsRunning(false);
     setSecondsLeft(sec);
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-  }, [totalSeconds]);
+    clearTimers();
+  }, [totalSeconds, clearTimers]);
 
   useEffect(() => {
     if (!isRunning || !targetEndTimeRef.current) return;
@@ -61,6 +77,7 @@ export function useInterviewTimer({ totalSeconds = 0, autoStart = false, onFinis
       const remainingMs = targetEndTimeRef.current - now;
 
       if (remainingMs <= 0) {
+        clearTimers();
         setSecondsLeft(0);
         setIsRunning(false);
         if (onFinishRef.current) {
@@ -82,7 +99,7 @@ export function useInterviewTimer({ totalSeconds = 0, autoStart = false, onFinis
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [isRunning]);
+  }, [isRunning, clearTimers]);
 
   // Định dạng hiển thị phút:giây (ví dụ: 01:30 hoặc 00:25)
   const formatTime = (secs) => {

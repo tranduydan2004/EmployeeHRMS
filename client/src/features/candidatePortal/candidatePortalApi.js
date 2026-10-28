@@ -15,17 +15,20 @@ const candidateAxios = axios.create({
 /**
  * Lấy thông tin phiên phỏng vấn và danh sách câu hỏi
  * @param {string} inviteToken 
+ * @param {string} [sessionNonce]
  * @returns {Promise<import('./types').CandidateInterviewSession>}
  */
-export async function fetchCandidateSession(inviteToken) {
-  const response = await candidateAxios.get(`/interviews/${inviteToken}`);
+export async function fetchCandidateSession(inviteToken, sessionNonce) {
+  const params = sessionNonce ? { sessionNonce } : {};
+  const headers = sessionNonce ? { 'X-Session-Nonce': sessionNonce } : {};
+  const response = await candidateAxios.get(`/interviews/${inviteToken}`, { params, headers });
   return response.data;
 }
 
 /**
  * Xác nhận ứng viên đồng ý và bắt đầu buổi phỏng vấn (Idempotent)
  * @param {string} inviteToken 
- * @returns {Promise<{ inviteToken: string, status: string, consentedAt: string, message: string }>}
+ * @returns {Promise<{ inviteToken: string, activeSessionNonce?: string, status: string, consentedAt: string, message: string }>}
  */
 export async function startCandidateInterview(inviteToken) {
   const response = await candidateAxios.post(`/interviews/${inviteToken}/start`);
@@ -42,13 +45,23 @@ export async function startCandidateInterview(inviteToken) {
  * @param {number} payload.tabSwitchCount
  * @param {number} payload.outOfFocusDurationSeconds
  * @param {string[]} [payload.flags]
+ * @param {string} [payload.sessionNonce]
+ * @param {boolean} [payload.isOfflineRecovery]
  * @param {(percent: number) => void} [onProgress]
  * @param {AbortSignal} [signal]
  */
 export async function uploadAnswerAudio(
   inviteToken,
   questionId,
-  { audioBlob, durationSeconds, tabSwitchCount = 0, outOfFocusDurationSeconds = 0, flags = [] },
+  {
+    audioBlob,
+    durationSeconds,
+    tabSwitchCount = 0,
+    outOfFocusDurationSeconds = 0,
+    flags = [],
+    sessionNonce,
+    isOfflineRecovery = false
+  },
   onProgress,
   signal
 ) {
@@ -64,6 +77,11 @@ export async function uploadAnswerAudio(
   formData.append('durationSeconds', Math.max(1, Math.round(durationSeconds)).toString());
   formData.append('tabSwitchCount', Math.round(tabSwitchCount).toString());
   formData.append('outOfFocusDurationSeconds', Number(outOfFocusDurationSeconds).toFixed(1));
+  formData.append('isOfflineRecovery', Boolean(isOfflineRecovery).toString());
+
+  if (sessionNonce) {
+    formData.append('sessionNonce', sessionNonce);
+  }
 
   if (Array.isArray(flags) && flags.length > 0) {
     flags.forEach((flag) => {
@@ -71,13 +89,18 @@ export async function uploadAnswerAudio(
     });
   }
 
+  const headers = {
+    'Content-Type': 'multipart/form-data',
+  };
+  if (sessionNonce) {
+    headers['X-Session-Nonce'] = sessionNonce;
+  }
+
   const response = await candidateAxios.post(
     `/interviews/${inviteToken}/answers/${questionId}`,
     formData,
     {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers,
       signal,
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total && onProgress) {

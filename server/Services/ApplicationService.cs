@@ -254,6 +254,55 @@ namespace EmployeeHRMS.Api.Services
             var application = await _context.Applications.FindAsync(id)
                 ?? throw new NotFoundException("Application", id);
 
+            // 1. Tìm các Interview liên kết với Application này
+            var relatedInterviewIds = await _context.Interviews
+                .Where(i => i.ApplicationId == id)
+                .Select(i => i.Id)
+                .ToListAsync();
+
+            if (relatedInterviewIds.Count > 0)
+            {
+                // 2. Xóa các AudioAccessLogs liên quan đến các interviews (vì FK Restrict tới Interview)
+                var relatedAudioLogs = await _context.AudioAccessLogs
+                    .Where(l => relatedInterviewIds.Contains(l.InterviewId))
+                    .ToListAsync();
+
+                if (relatedAudioLogs.Count > 0)
+                {
+                    _context.AudioAccessLogs.RemoveRange(relatedAudioLogs);
+                }
+
+                // 3. Xóa tất cả ScreeningDecisions liên quan đến Application hoặc các Interviews của Application (vì FK Restrict)
+                var relatedDecisions = await _context.ScreeningDecisions
+                    .Where(d => d.ApplicationId == id || relatedInterviewIds.Contains(d.InterviewId))
+                    .ToListAsync();
+
+                if (relatedDecisions.Count > 0)
+                {
+                    _context.ScreeningDecisions.RemoveRange(relatedDecisions);
+                }
+
+                // 4. Xóa các Interviews liên quan (sẽ tự động cascade xóa Questions, Answers, Evaluations)
+                var interviews = await _context.Interviews
+                    .Where(i => relatedInterviewIds.Contains(i.Id))
+                    .ToListAsync();
+
+                _context.Interviews.RemoveRange(interviews);
+            }
+            else
+            {
+                // 5. Nếu không có Interview nào, vẫn cần xóa ScreeningDecisions gắn trực tiếp với Application (nếu có)
+                var relatedDecisions = await _context.ScreeningDecisions
+                    .Where(d => d.ApplicationId == id)
+                    .ToListAsync();
+
+                if (relatedDecisions.Count > 0)
+                {
+                    _context.ScreeningDecisions.RemoveRange(relatedDecisions);
+                }
+            }
+
+            // 6. Xóa chính Application
             _context.Applications.Remove(application);
             await _context.SaveChangesAsync();
 

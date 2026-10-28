@@ -35,6 +35,9 @@ namespace EmployeeHRMS.Api.Models
         // Audio interview: hạn dùng link mời (null = phỏng vấn trực tiếp, không qua link)
         public DateTime? InviteExpiresAt { get; private set; }
 
+        // Nonce phiên hoạt động duy nhất của ứng viên, ngăn chặn mở đồng thời nhiều thiết bị/tab
+        public Guid? ActiveSessionNonce { get; private set; }
+
         // Thời điểm ứng viên đồng ý ghi âm và bắt đầu phiên (set một lần duy nhất)
         public DateTime? ConsentedAt { get; private set; }
 
@@ -160,6 +163,27 @@ namespace EmployeeHRMS.Api.Models
 
             Status = InterviewStatus.InProgress;
             ConsentedAt ??= DateTime.UtcNow;
+            ActiveSessionNonce ??= Guid.NewGuid();
+        }
+
+        /// <summary>
+        /// Tạo mới hoặc làm mới Session Nonce để kiểm soát thiết bị/tab duy nhất của ứng viên.
+        /// </summary>
+        public Guid RenewSessionNonce()
+        {
+            var newNonce = Guid.NewGuid();
+            ActiveSessionNonce = newNonce;
+            return newNonce;
+        }
+
+        /// <summary>
+        /// Kiểm tra tính hợp lệ của Session Nonce gửi từ client.
+        /// </summary>
+        public bool ValidateSessionNonce(Guid? clientNonce)
+        {
+            // Nếu chưa khởi tạo nonce thì chấp nhận để đảm bảo backward compatibility
+            if (!ActiveSessionNonce.HasValue) return true;
+            return clientNonce.HasValue && ActiveSessionNonce.Value == clientNonce.Value;
         }
 
         /// <summary>
