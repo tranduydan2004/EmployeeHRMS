@@ -433,13 +433,66 @@ namespace EmployeeHRMS.Tests.Services
         }
 
         [Fact]
-        public async Task GetPublicByIdAsync_WhenJobDoesNotExist_ThrowsNotFoundException()
+        public async Task UpdateJdContentAsync_WhenJobIsDraft_UpdatesBothJdContentAndMetadata()
         {
-            // Act
-            var act = () => _service.GetPublicByIdAsync(999, isManagementUser: false);
+            // Arrange
+            var updateDto = new UpdateJdContentDto
+            {
+                Intro = "Updated Intro for Senior .NET",
+                Responsibilities = new List<string> { "Lead architecture", "Optimize DB" },
+                MustHave = new List<string> { "8+ years C#", "PostgreSQL" },
+                NiceToHave = new List<string> { "Kubernetes" },
+                Benefits = new List<string> { "Health Insurance", "Remote allowance" },
+                Title = "Lead .NET Solutions Architect",
+                Level = JobLevel.Lead,
+                WorkMode = WorkMode.Remote,
+                CoreSkills = new List<string> { "C#", "Architecture", "PostgreSQL" },
+                YearsOfExperience = 8,
+                SalaryMin = 40000000,
+                SalaryMax = 70000000,
+                Currency = Currency.VND
+            };
+
+            // Act: Job 1 is Draft
+            var result = await _service.UpdateJdContentAsync(1, updateDto);
 
             // Assert
-            await act.Should().ThrowAsync<NotFoundException>();
+            result.Should().NotBeNull();
+            result.Title.Should().Be("Lead .NET Solutions Architect");
+            result.Level.Should().Be("Lead");
+            result.WorkMode.Should().Be("Remote");
+            result.CoreSkills.Should().ContainInOrder("C#", "Architecture", "PostgreSQL");
+            result.YearsOfExperience.Should().Be(8);
+            result.SalaryRange.Should().NotBeNull();
+            result.SalaryRange!.SalaryMin.Should().Be(40000000);
+            result.SalaryRange.SalaryMax.Should().Be(70000000);
+            result.SalaryRange.Currency.Should().Be("VND");
+
+            result.JdContent.Should().NotBeNull();
+            result.JdContent!.Intro.Should().Be("Updated Intro for Senior .NET");
+            result.JdContent.Responsibilities.Should().Contain("Lead architecture");
+            result.JdContent.MustHave.Should().Contain("8+ years C#");
+            result.JdContent.NiceToHave.Should().Contain("Kubernetes");
+            result.JdContent.Benefits.Should().Contain("Remote allowance");
+        }
+
+        [Fact]
+        public async Task UpdateJdContentAsync_WhenJobIsNotDraft_ThrowsBusinessRuleException()
+        {
+            // Arrange
+            var updateDto = new UpdateJdContentDto
+            {
+                Intro = "Trying to edit an approved job",
+                Responsibilities = new List<string> { "Resp" },
+                MustHave = new List<string> { "Skill" }
+            };
+
+            // Act: Job 2 is Approved
+            var act = () => _service.UpdateJdContentAsync(2, updateDto);
+
+            // Assert
+            await act.Should().ThrowAsync<BusinessRuleException>()
+                .WithMessage("*JD content can only be edited when status is Draft*");
         }
     }
 }

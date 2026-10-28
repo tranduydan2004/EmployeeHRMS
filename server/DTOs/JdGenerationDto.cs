@@ -65,6 +65,27 @@ namespace EmployeeHRMS.Api.DTOs
         public List<string> NiceToHave { get; set; } = new();
 
         public List<string> Benefits { get; set; } = new();
+
+        // Tham số cấu trúc tùy chọn khi HR tinh chỉnh tại Step 2
+        [StringLength(200, MinimumLength = 2, ErrorMessage = "Job title must be between 2 and 200 characters.")]
+        public string? Title { get; set; }
+
+        public JobLevel? Level { get; set; }
+
+        public WorkMode? WorkMode { get; set; }
+
+        public List<string>? CoreSkills { get; set; }
+
+        [Range(0, 50, ErrorMessage = "Years of experience must be between 0 and 50.")]
+        public int? YearsOfExperience { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Salary minimum cannot be negative.")]
+        public decimal? SalaryMin { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Salary maximum cannot be negative.")]
+        public decimal? SalaryMax { get; set; }
+
+        public Currency? Currency { get; set; }
     }
 
     // === DTO response chi tiết cho JobPosting (bao gồm JdContent + metadata Phase 1) ===

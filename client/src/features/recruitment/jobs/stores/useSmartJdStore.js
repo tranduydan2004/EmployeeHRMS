@@ -169,6 +169,29 @@ export const useSmartJdStore = create((set, get) => ({
     }));
   },
 
+  // Đổi thứ tự mục trong mảng (Lên / Xuống)
+  moveBullet: (section, fromIndex, toIndex) => {
+    set((state) => {
+      const list = [...(state.editedJd[section] || [])];
+      if (toIndex < 0 || toIndex >= list.length) return state;
+      const [moved] = list.splice(fromIndex, 1);
+      list.splice(toIndex, 0, moved);
+      return {
+        editedJd: {
+          ...state.editedJd,
+          [section]: list,
+        },
+      };
+    });
+  },
+
+  // Cập nhật metadata của Job (Title, Level, WorkMode, CoreSkills, Salary...)
+  updateJobMetadata: (updatedFields) => {
+    set((state) => ({
+      currentJob: state.currentJob ? { ...state.currentJob, ...updatedFields } : null,
+    }));
+  },
+
   reset: () => {
     set({
       isOpen: false,

@@ -391,6 +391,30 @@ namespace EmployeeHRMS.Api.Services
             };
             job.Description = dto.Intro;
 
+            // Cập nhật metadata nếu được điều chỉnh từ Step 2
+            if (!string.IsNullOrWhiteSpace(dto.Title))
+                job.Title = dto.Title.Trim();
+
+            if (dto.Level.HasValue)
+                job.Level = dto.Level.Value;
+
+            if (dto.WorkMode.HasValue)
+                job.WorkMode = dto.WorkMode.Value;
+
+            if (dto.CoreSkills != null && dto.CoreSkills.Count > 0)
+                job.CoreSkills = dto.CoreSkills;
+
+            if (dto.YearsOfExperience.HasValue)
+                job.YearsOfExperience = dto.YearsOfExperience.Value;
+
+            if (dto.SalaryMin.HasValue || dto.SalaryMax.HasValue || dto.Currency.HasValue)
+            {
+                job.SalaryRange ??= new SalaryRange();
+                if (dto.SalaryMin.HasValue) job.SalaryRange.SalaryMin = dto.SalaryMin.Value;
+                if (dto.SalaryMax.HasValue) job.SalaryRange.SalaryMax = dto.SalaryMax.Value;
+                if (dto.Currency.HasValue) job.SalaryRange.Currency = dto.Currency.Value;
+            }
+
             await _context.SaveChangesAsync();
 
             _eventLogger.LogEvent("JobPosting", $"JD content updated (Id: {id})", _eventLogger.OnEntityUpdated);

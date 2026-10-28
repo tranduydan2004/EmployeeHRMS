@@ -26,6 +26,7 @@ export function useDraftJdMutation() {
 
 export function useUpdateJdContentMutation() {
   const queryClient = useQueryClient();
+  const updateJobMetadata = useSmartJdStore((state) => state.updateJobMetadata);
 
   return useMutation({
     mutationFn: async ({ id, payload }) => {
@@ -33,10 +34,11 @@ export function useUpdateJdContentMutation() {
       return res.data;
     },
     onSuccess: (data) => {
+      updateJobMetadata?.(data);
       queryClient.invalidateQueries({ queryKey: ['jobPostings'] });
       queryClient.invalidateQueries({ queryKey: ['jobPostings', data.id] });
       queryClient.invalidateQueries({ queryKey: ['jobPostingDetail', data.id] });
-      toast.success('Cập nhật nội dung JD thành công!');
+      toast.success('Lưu bản thảo JD và thông số thành công!');
     },
     onError: (err) => {
       const msg = err?.response?.data?.error || err?.message || 'Không thể cập nhật nội dung JD';
