@@ -5,6 +5,7 @@ import { useDepartments } from '@/features/departments';
 import { Input, Select, Button } from '@/components';
 import { Sparkles, Briefcase, DollarSign, BrainCircuit, Award } from 'lucide-react';
 import TagInput from './TagInput';
+import FormattedSalaryInput from './FormattedSalaryInput';
 
 const LEVELS = [
   { value: 'Intern', label: 'Intern' },
@@ -81,6 +82,7 @@ export default function Step1ParamForm({ onSubmit, isLoading, defaultValues }) {
 
   const currentLevel = watch('level');
   const currentWorkMode = watch('workMode');
+  const currentCurrency = watch('currency') || 'VND';
 
   const departmentOptions = departmentList.map((d) => ({
     value: d.id.toString(),
@@ -250,22 +252,34 @@ export default function Step1ParamForm({ onSubmit, isLoading, defaultValues }) {
             </label>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
               <div style={{ flex: 1 }}>
-                <Input
-                  placeholder="Lương tối thiểu"
-                  type="number"
-                  min={0}
-                  error={errors.salaryMin?.message}
-                  {...register('salaryMin')}
+                <Controller
+                  name="salaryMin"
+                  control={control}
+                  render={({ field }) => (
+                    <FormattedSalaryInput
+                      placeholder="Lương tối thiểu (VD: 15.000.000)"
+                      value={field.value}
+                      onChange={field.onChange}
+                      currency={currentCurrency}
+                      error={errors.salaryMin?.message}
+                    />
+                  )}
                 />
               </div>
               <span style={{ alignSelf: 'center', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>-</span>
               <div style={{ flex: 1 }}>
-                <Input
-                  placeholder="Lương tối đa"
-                  type="number"
-                  min={0}
-                  error={errors.salaryMax?.message}
-                  {...register('salaryMax')}
+                <Controller
+                  name="salaryMax"
+                  control={control}
+                  render={({ field }) => (
+                    <FormattedSalaryInput
+                      placeholder="Lương tối đa (VD: 25.000.000)"
+                      value={field.value}
+                      onChange={field.onChange}
+                      currency={currentCurrency}
+                      error={errors.salaryMax?.message}
+                    />
+                  )}
                 />
               </div>
               <div style={{ width: '110px' }}>

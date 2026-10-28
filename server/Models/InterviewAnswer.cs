@@ -277,6 +277,19 @@ namespace EmployeeHRMS.Api.Models
         }
 
         /// <summary>
+        /// Ghi nhận câu trả lời bị hết thời gian (Timed Out) khi ứng viên không nộp kịp bài.
+        /// </summary>
+        public void MarkTimedOut(string reason = "[Không có câu trả lời do hết thời gian]")
+        {
+            Transcript = reason;
+            Status = AudioProcessingStatus.Completed;
+            CompletedAt = DateTime.UtcNow;
+            FailedStage = null;
+            ErrorMessage = null;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
         /// Overload tương thích ngược cho các test và component cũ. Điểm chính thức lưu trong QuestionEvaluation.
         /// </summary>
         [Obsolete("Dùng CompleteScoring() không tham số; điểm và feedback lưu trong QuestionEvaluation (D7).")]

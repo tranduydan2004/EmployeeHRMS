@@ -274,6 +274,9 @@ namespace EmployeeHRMS.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<Guid?>("ActiveSessionNonce")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal?>("AiOverallScore")
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
@@ -464,6 +467,9 @@ namespace EmployeeHRMS.Api.Migrations
                     b.Property<string>("Question")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("ServedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("ThinkSeconds")
                         .ValueGeneratedOnAdd()

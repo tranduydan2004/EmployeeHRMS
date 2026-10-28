@@ -15,6 +15,7 @@ export const useCandidateInterviewStore = create((set, get) => ({
   // Session State
   // ============================================================
   inviteToken: null,
+  sessionNonce: null,
   session: null,
   isLoading: false,
   error: null,
@@ -94,24 +95,50 @@ export const useCandidateInterviewStore = create((set, get) => ({
     set({ isLoading: true, error: null, errorStatus: null });
 
     try {
-      const data = await fetchCandidateSession(inviteToken);
+      const nonceKey = `hrms_session_nonce_${inviteToken}`;
+      const storedNonce = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(nonceKey) : null;
+
+      const data = await fetchCandidateSession(inviteToken, storedNonce || get().sessionNonce);
+
+      if (data.activeSessionNonce && typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(nonceKey, data.activeSessionNonce);
+      }
 
       // Khởi tạo trạng thái từng câu hỏi
-      const initialQuestionsState = {};
+      const initialQuestionsState = { ...get().questionsState };
       let firstUnansweredIndex = 0;
       let foundUnanswered = false;
 
       (data.questions || []).forEach((q, idx) => {
+        let defaultStatus = q.hasAnswer ? 'completed' : 'pending';
+
+        // Nếu câu hỏi này đang active trên server
+        if (q.isActive && !q.hasAnswer) {
+          if (q.remainingThinkSeconds === 0) {
+            defaultStatus = 'recording';
+          } else {
+            defaultStatus = 'thinking';
+          }
+        }
+
+        // Bảo lưu trạng thái ghi âm cục bộ nếu đang thực hiện
+        const existingState = initialQuestionsState[q.id];
+        const status = existingState && (existingState.status === 'recording' || existingState.status === 'uploading')
+          ? existingState.status
+          : defaultStatus;
+
         initialQuestionsState[q.id] = {
           id: q.id,
-          status: q.hasAnswer ? 'completed' : 'pending', // 'pending' | 'thinking' | 'recording' | 'uploading' | 'completed' | 'failed'
-          audioBlob: null,
-          audioDurationSeconds: 0,
-          uploadProgress: q.hasAnswer ? 100 : 0,
-          uploadError: null,
-          tabSwitchCount: 0,
-          outOfFocusDurationSeconds: 0,
-          flags: [],
+          status,
+          audioBlob: existingState?.audioBlob || null,
+          audioDurationSeconds: existingState?.audioDurationSeconds || 0,
+          uploadProgress: q.hasAnswer ? 100 : (existingState?.uploadProgress || 0),
+          uploadError: existingState?.uploadError || null,
+          tabSwitchCount: existingState?.tabSwitchCount || 0,
+          outOfFocusDurationSeconds: existingState?.outOfFocusDurationSeconds || 0,
+          flags: existingState?.flags || [],
+          remainingThinkSeconds: q.remainingThinkSeconds,
+          remainingAnswerSeconds: q.remainingAnswerSeconds,
         };
 
         if (!q.hasAnswer && !foundUnanswered) {
@@ -122,13 +149,17 @@ export const useCandidateInterviewStore = create((set, get) => ({
 
       // Nếu tất cả câu hỏi đã được trả lời
       const isAllDone = data.questions?.length > 0 && data.questions.every((q) => q.hasAnswer);
+      const targetIndex = data.currentQuestionIndex !== undefined
+        ? data.currentQuestionIndex
+        : (isAllDone ? (data.questions.length - 1) : firstUnansweredIndex);
 
       set({
         session: data,
+        sessionNonce: data.activeSessionNonce || get().sessionNonce || storedNonce,
         inviteToken,
         isLoading: false,
         questionsState: initialQuestionsState,
-        currentQuestionIndex: isAllDone ? (data.questions.length - 1) : firstUnansweredIndex,
+        currentQuestionIndex: targetIndex,
         stage: isAllDone ? 'completed' : (data.consentedAt ? 'in_progress' : 'welcome'),
       });
     } catch (err) {
@@ -155,13 +186,26 @@ export const useCandidateInterviewStore = create((set, get) => ({
 
     try {
       const result = await startCandidateInterview(inviteToken);
+      if (result.activeSessionNonce && typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(`hrms_session_nonce_${inviteToken}`, result.activeSessionNonce);
+      }
+
       set((state) => ({
         isLoading: false,
         stage: 'in_progress',
+        sessionNonce: result.activeSessionNonce || state.sessionNonce,
         session: state.session
-          ? { ...state.session, status: result.status, consentedAt: result.consentedAt }
+          ? {
+              ...state.session,
+              status: result.status,
+              consentedAt: result.consentedAt,
+              activeSessionNonce: result.activeSessionNonce,
+            }
           : null,
       }));
+
+      // Tải lại session để nhận text câu hỏi số 1 và mốc ServedAt từ server
+      await get().loadSession(inviteToken);
     } catch (err) {
       set({
         isLoading: false,
@@ -170,11 +214,34 @@ export const useCandidateInterviewStore = create((set, get) => ({
     }
   },
 
-  // 3. Đổi câu hỏi
+  // 3. Tiến sang câu tiếp theo (Cố định 1 chiều, chỉ được đi tiếp khi câu hiện tại đã hoàn thành)
   setCurrentQuestionIndex: (index) => {
-    const { session } = get();
-    if (!session?.questions || index < 0 || index >= session.questions.length) return;
-    set({ currentQuestionIndex: index });
+    const { session, currentQuestionIndex, questionsState } = get();
+    if (!session?.questions) return;
+    const currentQ = session.questions[currentQuestionIndex];
+    const isCurrentDone = currentQ && questionsState[currentQ.id]?.status === 'completed';
+
+    // Chỉ cho phép tiến đúng 1 câu khi câu hiện tại đã xong
+    if (index === currentQuestionIndex + 1 && isCurrentDone) {
+      set({ currentQuestionIndex: index });
+      get().loadSession();
+    }
+  },
+
+  advanceToNextQuestion: (force = false) => {
+    const { session, currentQuestionIndex, questionsState } = get();
+    const currentQ = session?.questions?.[currentQuestionIndex];
+    if (!currentQ) return;
+
+    const isCurrentDone = questionsState[currentQ.id]?.status === 'completed';
+    if (!isCurrentDone && !force) return;
+
+    if (currentQuestionIndex < (session?.questions?.length || 1) - 1) {
+      set({ currentQuestionIndex: currentQuestionIndex + 1 });
+      get().loadSession();
+    } else {
+      get().loadSession();
+    }
   },
 
   // 4. Bắt đầu giai đoạn suy nghĩ của câu hỏi hiện tại
@@ -256,6 +323,7 @@ export const useCandidateInterviewStore = create((set, get) => ({
     }));
 
     try {
+      const { sessionNonce } = get();
       await uploadAnswerAudio(
         inviteToken,
         questionId,
@@ -265,6 +333,8 @@ export const useCandidateInterviewStore = create((set, get) => ({
           tabSwitchCount: qState.tabSwitchCount || 0,
           outOfFocusDurationSeconds: qState.outOfFocusDurationSeconds || 0,
           flags: qState.flags || [],
+          sessionNonce,
+          isOfflineRecovery: Boolean(qState.isOfflineRecovery),
         },
         (progressPercent) => {
           set((state) => ({
@@ -282,31 +352,37 @@ export const useCandidateInterviewStore = create((set, get) => ({
       // Upload thành công -> Xóa backup trong IndexedDB và đánh dấu hoàn thành
       await deleteOfflineAnswer(inviteToken, questionId);
 
-      set((state) => {
-        const updatedQuestions = {
-          ...state.questionsState,
-          [questionId]: {
-            ...state.questionsState[questionId],
-            status: 'completed',
-            uploadProgress: 100,
-          },
-        };
+      const latestState = get();
+      const updatedQuestions = {
+        ...latestState.questionsState,
+        [questionId]: {
+          ...latestState.questionsState[questionId],
+          status: 'completed',
+          uploadProgress: 100,
+        },
+      };
 
-        // Kiểm tra xem đã hoàn thành tất cả câu hỏi chưa
-        const allCompleted = session?.questions?.every(
-          (q) => updatedQuestions[q.id]?.status === 'completed'
-        );
+      // Kiểm tra xem đã hoàn thành tất cả câu hỏi chưa
+      const allCompleted = session?.questions?.every(
+        (q) => updatedQuestions[q.id]?.status === 'completed'
+      );
 
-        return {
-          questionsState: updatedQuestions,
-          stage: allCompleted ? 'completed' : state.stage,
-          // Nếu chưa hết câu thì tự động chuyển sang câu tiếp theo sau 1 giây
-          currentQuestionIndex:
-            !allCompleted && currentQuestionIndex < (session?.questions?.length || 1) - 1
-              ? currentQuestionIndex + 1
-              : currentQuestionIndex,
-        };
+      const latestCurrentIndex = latestState.currentQuestionIndex;
+      const nextIndex = latestCurrentIndex + 1;
+      const hasNext = nextIndex < (session?.questions?.length || 1);
+
+      set({
+        questionsState: updatedQuestions,
+        stage: allCompleted ? 'completed' : latestState.stage,
+        currentQuestionIndex: !allCompleted && hasNext ? nextIndex : latestCurrentIndex,
       });
+
+      // Nếu còn câu hỏi tiếp theo, tự động tải lại session để server cấp câu mới với ServedAt
+      if (!allCompleted && hasNext) {
+        await get().loadSession();
+      } else if (allCompleted) {
+        await get().loadSession();
+      }
     } catch (err) {
       const errorMsg =
         err.response?.data?.error ||
@@ -342,6 +418,7 @@ export const useCandidateInterviewStore = create((set, get) => ({
             tabSwitchCount: offlineItem.metadata?.tabSwitchCount || 0,
             outOfFocusDurationSeconds: offlineItem.metadata?.outOfFocusDurationSeconds || 0,
             flags: offlineItem.metadata?.flags || [],
+            isOfflineRecovery: true,
             status: 'uploading',
             uploadProgress: 0,
             uploadError: null,

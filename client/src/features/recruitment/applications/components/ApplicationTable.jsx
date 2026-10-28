@@ -47,7 +47,11 @@ export default function ApplicationTable() {
 
   const handleDelete = async (app) => {
     if (window.confirm(`Bạn có chắc muốn xóa đơn ứng tuyển của "${app.candidateName}"?`)) {
-      await deleteApplication(app.id);
+      try {
+        await deleteApplication(app.id);
+      } catch (err) {
+        console.error('Lỗi khi xóa đơn ứng tuyển:', err);
+      }
     }
   };
 

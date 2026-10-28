@@ -31,22 +31,58 @@ export default function SmartJdModal() {
     draftMutation.mutate(payload);
   };
 
-  const handleSaveContent = (editedJd) => {
+  const handleSaveContent = (editedJd, metadata) => {
     if (!currentJob) return;
+    const payload = {
+      intro: editedJd.intro,
+      responsibilities: editedJd.responsibilities,
+      mustHave: editedJd.mustHave,
+      niceToHave: editedJd.niceToHave || [],
+      benefits: editedJd.benefits || [],
+      ...(metadata ? {
+        title: metadata.title,
+        level: metadata.level,
+        workMode: metadata.workMode,
+        coreSkills: metadata.coreSkills,
+        yearsOfExperience: metadata.yearsOfExperience !== '' && metadata.yearsOfExperience !== undefined ? Number(metadata.yearsOfExperience) : null,
+        salaryMin: metadata.salaryMin !== '' && metadata.salaryMin !== undefined ? Number(metadata.salaryMin) : null,
+        salaryMax: metadata.salaryMax !== '' && metadata.salaryMax !== undefined ? Number(metadata.salaryMax) : null,
+        currency: metadata.currency || 'VND',
+      } : {}),
+    };
     updateContentMutation.mutate({
       id: currentJob.id,
-      payload: {
-        intro: editedJd.intro,
-        responsibilities: editedJd.responsibilities,
-        mustHave: editedJd.mustHave,
-        niceToHave: editedJd.niceToHave || [],
-        benefits: editedJd.benefits || [],
-      },
+      payload,
     });
   };
 
-  const handleApprove = () => {
+  const handleApprove = async (editedJd, metadata) => {
     if (!currentJob) return;
+    if (editedJd && metadata) {
+      try {
+        await updateContentMutation.mutateAsync({
+          id: currentJob.id,
+          payload: {
+            intro: editedJd.intro,
+            responsibilities: editedJd.responsibilities,
+            mustHave: editedJd.mustHave,
+            niceToHave: editedJd.niceToHave || [],
+            benefits: editedJd.benefits || [],
+            title: metadata.title,
+            level: metadata.level,
+            workMode: metadata.workMode,
+            coreSkills: metadata.coreSkills,
+            yearsOfExperience: metadata.yearsOfExperience !== '' && metadata.yearsOfExperience !== undefined ? Number(metadata.yearsOfExperience) : null,
+            salaryMin: metadata.salaryMin !== '' && metadata.salaryMin !== undefined ? Number(metadata.salaryMin) : null,
+            salaryMax: metadata.salaryMax !== '' && metadata.salaryMax !== undefined ? Number(metadata.salaryMax) : null,
+            currency: metadata.currency || 'VND',
+          },
+        });
+      } catch (err) {
+        // Error already handled by toast in useUpdateJdContentMutation
+        return;
+      }
+    }
     approveMutation.mutate(currentJob.id);
   };
 
@@ -187,6 +223,19 @@ export default function SmartJdModal() {
         <Step1ParamForm
           onSubmit={handleDraftSubmit}
           isLoading={draftMutation.isPending}
+          defaultValues={currentJob ? {
+            title: currentJob.title || '',
+            departmentId: currentJob.departmentId ? currentJob.departmentId.toString() : '',
+            level: currentJob.level || 'Junior',
+            workMode: currentJob.workMode || 'Onsite',
+            coreSkills: currentJob.coreSkills || ['C#', 'ASP.NET Core'],
+            yearsOfExperience: currentJob.yearsOfExperience ?? 1,
+            salaryMin: currentJob.salaryRange?.salaryMin ?? undefined,
+            salaryMax: currentJob.salaryRange?.salaryMax ?? undefined,
+            currency: currentJob.salaryRange?.currency || 'VND',
+            additionalNotes: currentJob.additionalNotes || '',
+            certifications: currentJob.certifications || [],
+          } : undefined}
         />
       )}
 

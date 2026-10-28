@@ -6,12 +6,14 @@ namespace EmployeeHRMS.Api.DTOs
     public class CandidateInterviewSessionResponseDto
     {
         public Guid InviteToken { get; set; }
+        public Guid? ActiveSessionNonce { get; set; }
         public string JobTitle { get; set; } = string.Empty;
         public string CandidateName { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
         public DateTime? InviteExpiresAt { get; set; }
         public DateTime? ConsentedAt { get; set; }
         public int TotalQuestions { get; set; }
+        public int CurrentQuestionIndex { get; set; }
         public List<CandidateQuestionDto> Questions { get; set; } = new();
     }
 
@@ -23,11 +25,17 @@ namespace EmployeeHRMS.Api.DTOs
         public int ThinkSeconds { get; set; }
         public int AnswerSeconds { get; set; }
         public bool HasAnswer { get; set; }
+        public DateTime? ServedAt { get; set; }
+        public int? RemainingThinkSeconds { get; set; }
+        public int? RemainingAnswerSeconds { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsLocked { get; set; }
     }
 
     public class CandidateInterviewStartResponseDto
     {
         public Guid InviteToken { get; set; }
+        public Guid? ActiveSessionNonce { get; set; }
         public string Status { get; set; } = string.Empty;
         public DateTime? ConsentedAt { get; set; }
         public string Message { get; set; } = string.Empty;

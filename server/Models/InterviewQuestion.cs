@@ -29,6 +29,12 @@ namespace EmployeeHRMS.Api.Models
 
         public int ThinkSeconds { get; set; } = 20;
         public int AnswerSeconds { get; set; } = 90;
+
+        /// <summary>
+        /// Thời điểm câu hỏi được mở/phát cho ứng viên lần đầu tiên trên server.
+        /// Dùng làm mốc tính thời gian suy nghĩ và trả lời, chống gian lận thoát tab/F5.
+        /// </summary>
+        public DateTime? ServedAt { get; set; }
         
         // 1-to-1: Mỗi câu hỏi chỉ có tối đa 1 audio response
         public InterviewAnswer? Answer { get; set; }

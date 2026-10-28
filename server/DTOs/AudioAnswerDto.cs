@@ -32,6 +32,16 @@ namespace EmployeeHRMS.Api.DTOs
         /// Server sẽ validate theo whitelist.
         /// </summary>
         public List<string>? Flags { get; set; }
+
+        /// <summary>
+        /// Nonce phiên hoạt động của ứng viên để chống gian lận mở nhiều tab/thiết bị đồng thời.
+        /// </summary>
+        public Guid? SessionNonce { get; set; }
+
+        /// <summary>
+        /// Cờ đánh dấu nộp từ kho lưu trữ offline cục bộ (IndexedDB) sau khi phục hồi đường truyền mạng.
+        /// </summary>
+        public bool IsOfflineRecovery { get; set; }
     }
 
     /// <summary>

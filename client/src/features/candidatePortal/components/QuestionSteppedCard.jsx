@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import {
   Mic,
   Clock,
@@ -16,7 +16,7 @@ export function QuestionSteppedCard() {
   const {
     session,
     currentQuestionIndex,
-    setCurrentQuestionIndex,
+    advanceToNextQuestion,
     questionsState,
     startThinkingPhase,
     startRecordingPhase,
@@ -43,8 +43,22 @@ export function QuestionSteppedCard() {
     },
   });
 
-  // 1. Timer chuẩn bị suy nghĩ (Think Timer)
-  const thinkSeconds = currentQuestion?.thinkSeconds || 20;
+  // 1. Timer chuẩn bị suy nghĩ (Think Timer - đồng bộ với mốc Server nếu có)
+  const serverRemainingThink = currentQState?.remainingThinkSeconds;
+  const thinkSeconds = serverRemainingThink !== undefined && serverRemainingThink !== null
+    ? serverRemainingThink
+    : (currentQuestion?.thinkSeconds || 20);
+
+  // 2. Timer trả lời (Answer Timer - đồng bộ với mốc Server nếu có)
+  const serverRemainingAnswer = currentQState?.remainingAnswerSeconds;
+  const answerSeconds = serverRemainingAnswer !== undefined && serverRemainingAnswer !== null
+    ? serverRemainingAnswer
+    : (currentQuestion?.answerSeconds || 60);
+
+  // Refs để giải quyết circular dependency giữa timer callbacks và handlers
+  const handleStartRecordingRef = useRef(null);
+  const handleTimeExpiredRef = useRef(null);
+
   const {
     start: startThinkTimer,
     reset: resetThinkTimer,
@@ -52,13 +66,10 @@ export function QuestionSteppedCard() {
   } = useInterviewTimer({
     totalSeconds: thinkSeconds,
     onFinish: () => {
-      // Hết giờ suy nghĩ -> tự động chuyển sang ghi âm
-      handleStartRecording();
+      handleStartRecordingRef.current?.();
     },
   });
 
-  // 2. Timer trả lời (Answer Timer)
-  const answerSeconds = currentQuestion?.answerSeconds || 60;
   const {
     secondsLeft: answerTimeLeft,
     start: startAnswerTimer,
@@ -67,21 +78,29 @@ export function QuestionSteppedCard() {
   } = useInterviewTimer({
     totalSeconds: answerSeconds,
     onFinish: () => {
-      // Hết giờ trả lời -> tự động dừng ghi âm và upload
-      handleStopRecording();
+      handleTimeExpiredRef.current?.();
     },
   });
 
-  // Tự động bắt đầu giai đoạn suy nghĩ khi chuyển sang câu hỏi chưa trả lời
-  useEffect(() => {
+  // Hành động khi hết giờ trả lời: dừng ghi âm, nộp bài và tự động chuyển câu tiếp theo
+  const handleTimeExpired = useCallback(async () => {
     if (!currentQuestion) return;
+    resetAnswerTimer(0);
+    resetThinkTimer(0);
 
-    if (currentStatus === 'pending') {
-      startThinkingPhase(currentQuestion.id);
-      resetThinkTimer(thinkSeconds);
-      startThinkTimer(thinkSeconds);
+    try {
+      const result = await stopRecording();
+      if (result?.blob) {
+        await finishRecording(currentQuestion.id, result.blob, result.durationSeconds);
+      } else {
+        // Nếu không có audio blob (ví dụ mic chưa bật hoặc vào lại tab khi đã hết giờ):
+        advanceToNextQuestion(true);
+      }
+    } catch (err) {
+      console.error('[QuestionSteppedCard] Lỗi khi xử lý hết giờ trả lời:', err);
+      advanceToNextQuestion(true);
     }
-  }, [currentQuestion, currentStatus, startThinkingPhase, resetThinkTimer, startThinkTimer, thinkSeconds]);
+  }, [currentQuestion, resetAnswerTimer, resetThinkTimer, stopRecording, finishRecording, advanceToNextQuestion]);
 
   // Hành động bắt đầu ghi âm sớm (hoặc tự động khi hết think time)
   const handleStartRecording = useCallback(async () => {
@@ -98,7 +117,7 @@ export function QuestionSteppedCard() {
     }
   }, [currentQuestion, resetThinkTimer, startRecordingPhase, startRecording, resetAnswerTimer, answerSeconds, startAnswerTimer]);
 
-  // Hành động dừng ghi âm và nộp bài
+  // Hành động chủ động dừng ghi âm và nộp bài trước giờ
   const handleStopRecording = useCallback(async () => {
     if (!currentQuestion) return;
     resetAnswerTimer(0);
@@ -106,12 +125,53 @@ export function QuestionSteppedCard() {
     try {
       const result = await stopRecording();
       if (result?.blob) {
-        finishRecording(currentQuestion.id, result.blob, result.durationSeconds);
+        await finishRecording(currentQuestion.id, result.blob, result.durationSeconds);
+      } else {
+        advanceToNextQuestion(true);
       }
     } catch (err) {
       console.error('[QuestionSteppedCard] Lỗi khi hoàn tất câu trả lời:', err);
     }
-  }, [currentQuestion, resetAnswerTimer, stopRecording, finishRecording]);
+  }, [currentQuestion, resetAnswerTimer, stopRecording, finishRecording, advanceToNextQuestion]);
+
+  handleStartRecordingRef.current = handleStartRecording;
+  handleTimeExpiredRef.current = handleTimeExpired;
+
+  // Tự động quản lý pha làm bài theo mốc thời gian thực từ Server (kể cả khi ứng viên tải lại trang hoặc mở trình duyệt mới)
+  useEffect(() => {
+    if (!currentQuestion) return;
+
+    if (currentStatus === 'pending') {
+      if (thinkSeconds > 0) {
+        startThinkingPhase(currentQuestion.id);
+        resetThinkTimer(thinkSeconds);
+        startThinkTimer(thinkSeconds);
+      } else if (answerSeconds > 0) {
+        // Mở lại trang mà thời gian suy nghĩ đã hết trên Server -> vào thẳng pha ghi âm
+        handleStartRecording();
+      } else {
+        // Đã hết cả thời gian suy nghĩ và trả lời trên Server -> chuyển câu ngay
+        handleTimeExpired();
+      }
+    } else if (currentStatus === 'thinking') {
+      if (thinkSeconds > 0) {
+        resetThinkTimer(thinkSeconds);
+        startThinkTimer(thinkSeconds);
+      } else {
+        handleStartRecording();
+      }
+    } else if (currentStatus === 'recording') {
+      if (answerSeconds > 0) {
+        // Vào lại trang khi đang trong pha recording: bật mic và đếm tiếp
+        startRecording().catch(console.error);
+        resetAnswerTimer(answerSeconds);
+        startAnswerTimer(answerSeconds);
+      } else {
+        // Đã hết giờ trả lời
+        handleTimeExpired();
+      }
+    }
+  }, [currentQuestion?.id]);
 
   if (!currentQuestion) return null;
 
@@ -150,7 +210,7 @@ export function QuestionSteppedCard() {
           </span>
         </div>
 
-        {/* Stepper Dots */}
+        {/* Stepper Dots: Cố định 1 chiều - Chỉ hiển thị tiến trình, không cho phép click nhảy câu */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {questions.map((q, idx) => {
             const state = questionsState[q.id];
@@ -160,21 +220,15 @@ export function QuestionSteppedCard() {
             return (
               <div
                 key={q.id}
-                onClick={() => {
-                  // Chỉ cho phép click xem lại các câu nếu không đang ghi âm
-                  if (currentStatus !== 'recording') {
-                    setCurrentQuestionIndex(idx);
-                  }
-                }}
                 style={{
-                  width: isCurrent ? '24px' : '10px',
+                  width: isCurrent ? '26px' : '10px',
                   height: '10px',
                   borderRadius: '5px',
-                  backgroundColor: isDone ? '#10b981' : isCurrent ? '#4f46e5' : '#cbd5e1',
-                  cursor: currentStatus !== 'recording' ? 'pointer' : 'default',
+                  backgroundColor: isDone ? '#10b981' : isCurrent ? '#4f46e5' : '#e2e8f0',
+                  cursor: 'default',
                   transition: 'all 0.2s',
                 }}
-                title={`Câu ${idx + 1}`}
+                title={isDone ? `Câu ${idx + 1}: Đã hoàn thành` : isCurrent ? `Câu ${idx + 1}: Đang thực hiện` : `Câu ${idx + 1}: Chưa đến lượt`}
               />
             );
           })}
@@ -353,7 +407,7 @@ export function QuestionSteppedCard() {
 
             {currentQuestionIndex < totalQuestions - 1 && (
               <button
-                onClick={() => setCurrentQuestionIndex(currentQuestionIndex + 1)}
+                onClick={advanceToNextQuestion}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
